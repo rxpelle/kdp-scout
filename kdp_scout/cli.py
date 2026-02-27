@@ -614,8 +614,9 @@ def score(recalculate):
 
     scorer = KeywordScorer()
     try:
-        with console.status('[bold cyan]Scoring keywords...'):
-            count = scorer.score_all_keywords()
+        label = 'Rescoring all keywords...' if recalculate else 'Scoring keywords...'
+        with console.status(f'[bold cyan]{label}'):
+            count = scorer.score_all_keywords(recalculate=recalculate)
 
         console.print(
             f'[bold green]Scored {count} keywords[/bold green]\n'

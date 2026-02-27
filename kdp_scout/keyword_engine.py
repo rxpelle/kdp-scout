@@ -181,13 +181,21 @@ class KeywordScorer:
 
         return score
 
-    def score_all_keywords(self) -> int:
-        """Score all active keywords in the database.
+    def score_all_keywords(self, recalculate=False) -> int:
+        """Score active keywords in the database.
+
+        Args:
+            recalculate: If True, rescore all keywords. If False (default),
+                only score keywords that don't have a score yet.
 
         Returns:
             Count of keywords scored.
         """
-        keyword_ids = self._repo.get_all_keyword_ids(active_only=True)
+        if recalculate:
+            keyword_ids = self._repo.get_all_keyword_ids(active_only=True)
+        else:
+            keyword_ids = self._repo.get_unscored_keyword_ids()
+
         count = 0
 
         for keyword_id in keyword_ids:
@@ -195,7 +203,7 @@ class KeywordScorer:
             self._repo.update_score(keyword_id, score)
             count += 1
 
-        logger.info(f'Scored {count} keywords')
+        logger.info(f'Scored {count} keywords (recalculate={recalculate})')
         return count
 
     def get_top_keywords(self, limit=50, min_score=0) -> list:

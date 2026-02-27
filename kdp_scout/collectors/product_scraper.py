@@ -9,6 +9,7 @@ import re
 import json
 import logging
 
+import requests
 from bs4 import BeautifulSoup
 
 from kdp_scout.http_client import fetch, get_browser_headers
@@ -68,13 +69,29 @@ class ProductScraper:
         url = PRODUCT_URL.format(asin=asin)
         logger.info(f'Scraping product page: {url}')
 
-        response = fetch(url, headers=get_browser_headers())
+        try:
+            response = fetch(url, headers=get_browser_headers())
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.error(f'Network error scraping ASIN {asin}: {e}')
+            return None
+        except requests.RequestException as e:
+            logger.error(f'Request error scraping ASIN {asin}: {e}')
+            return None
+
+        if response.status_code == 403:
+            logger.warning(f'Amazon blocked request (403) for ASIN {asin}')
+            raise CaptchaDetected(
+                'Amazon returned 403 Forbidden. Try again later or use a proxy.'
+            )
 
         if response.status_code != 200:
             logger.warning(f'Product page returned {response.status_code} for ASIN {asin}')
             return None
 
         html = response.text
+        if not html or len(html) < 100:
+            logger.warning(f'Empty or truncated response for ASIN {asin}')
+            return None
 
         # Detect CAPTCHA / soft-block pages
         self._check_for_captcha(html)

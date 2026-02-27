@@ -7,8 +7,11 @@ The autocomplete API returns the top suggestions Amazon shows in its
 search bar as users type, which directly reflects actual search behavior.
 """
 
+import json
 import logging
 import string
+
+import requests
 
 from kdp_scout.http_client import fetch
 from kdp_scout.rate_limiter import registry as rate_registry
@@ -121,14 +124,26 @@ def _query_autocomplete(prefix, alias):
 
     try:
         response = fetch(AUTOCOMPLETE_URL, params=params)
+    except (requests.Timeout, requests.ConnectionError) as e:
+        logger.error(f'Network error querying autocomplete for "{prefix}": {e}')
+        return []
+    except requests.RequestException as e:
+        logger.error(f'Request error querying autocomplete for "{prefix}": {e}')
+        return []
 
+    try:
         if response.status_code != 200:
             logger.warning(
                 f'Autocomplete returned {response.status_code} for "{prefix}"'
             )
             return []
 
-        data = response.json()
+        try:
+            data = response.json()
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f'Invalid JSON from autocomplete for "{prefix}": {e}')
+            return []
+
         suggestions = data.get('suggestions', [])
 
         results = []
@@ -141,5 +156,5 @@ def _query_autocomplete(prefix, alias):
         return results
 
     except Exception as e:
-        logger.error(f'Error querying autocomplete for "{prefix}": {e}')
+        logger.error(f'Error processing autocomplete for "{prefix}": {e}')
         return []

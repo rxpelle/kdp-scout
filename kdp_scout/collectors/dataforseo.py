@@ -112,7 +112,11 @@ class DataForSEOCollector:
                 )
                 return None
 
-            data = response.json()
+            try:
+                data = response.json()
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.error(f'Invalid JSON from DataForSEO: {e}')
+                return None
 
             # Check for API-level errors
             status_code = data.get('status_code')

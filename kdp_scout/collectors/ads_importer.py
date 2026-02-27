@@ -155,37 +155,44 @@ class AdsImporter:
             match_type = self._get_value(row, column_map, 'match_type')
 
             # Store in ads_search_terms table
-            self._ads_repo.add_search_term(
-                campaign_name=campaign_name,
-                ad_group=ad_group,
-                search_term=search_term,
-                keyword_match_type=match_type,
-                impressions=impressions,
-                clicks=clicks,
-                ctr=ctr,
-                spend=spend,
-                sales=sales,
-                acos=acos,
-                orders=orders,
-                report_date=today,
-                imported_at=now,
-            )
-            imported += 1
-
-            # Cross-reference with keywords table
-            keyword_id, is_new = self._kw_repo.upsert_keyword(
-                search_term, source='ads_report'
-            )
-
-            # Enrich keyword_metrics with ads data
-            if impressions or clicks or orders:
-                self._kw_repo.add_metric(
-                    keyword_id,
+            try:
+                self._ads_repo.add_search_term(
+                    campaign_name=campaign_name,
+                    ad_group=ad_group,
+                    search_term=search_term,
+                    keyword_match_type=match_type,
                     impressions=impressions,
                     clicks=clicks,
+                    ctr=ctr,
+                    spend=spend,
+                    sales=sales,
+                    acos=acos,
                     orders=orders,
+                    report_date=today,
+                    imported_at=now,
                 )
-                keywords_enriched += 1
+                imported += 1
+
+                # Cross-reference with keywords table
+                keyword_id, is_new = self._kw_repo.upsert_keyword(
+                    search_term, source='ads_report'
+                )
+
+                # Enrich keyword_metrics with ads data
+                if impressions or clicks or orders:
+                    self._kw_repo.add_metric(
+                        keyword_id,
+                        impressions=impressions,
+                        clicks=clicks,
+                        orders=orders,
+                    )
+                    keywords_enriched += 1
+
+            except Exception as e:
+                logger.error(
+                    f'Database error importing search term "{search_term}": {e}'
+                )
+                skipped += 1
 
         result = {
             'imported': imported,

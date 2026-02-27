@@ -428,6 +428,16 @@ class KeywordRepository:
         rows = self._conn.execute(query).fetchall()
         return [row['id'] for row in rows]
 
+    def get_unscored_keyword_ids(self):
+        """Get IDs of active keywords that have no score yet.
+
+        Returns:
+            List of integer IDs.
+        """
+        query = 'SELECT id FROM keywords WHERE is_active = 1 AND score IS NULL'
+        rows = self._conn.execute(query).fetchall()
+        return [row['id'] for row in rows]
+
     def get_keyword_metrics_history(self, keyword_id, days=30):
         """Get metric snapshots for a keyword within a date range.
 
