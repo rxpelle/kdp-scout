@@ -1,7 +1,7 @@
-"""Keyword mining orchestration engine.
+"""Keyword mining and scoring engine.
 
-Coordinates autocomplete mining, deduplication, and database storage.
-Serves as the main entry point for the `mine` CLI command.
+Coordinates autocomplete mining, deduplication, database storage,
+and keyword scoring based on multiple signals.
 """
 
 import logging
@@ -91,3 +91,114 @@ def mine_keywords(seed, depth=1, department='kindle', progress_callback=None):
 
     finally:
         repo.close()
+
+
+class KeywordScorer:
+    """Scores keywords based on multiple signals.
+
+    Scoring combines autocomplete presence, competition level,
+    BSR data, and real ads performance data into a composite score.
+    """
+
+    def __init__(self):
+        """Initialize with database access."""
+        init_db()
+        self._repo = KeywordRepository()
+
+    def close(self):
+        """Close database connection."""
+        self._repo.close()
+
+    def score_keyword(self, keyword_id: int) -> float:
+        """Compute composite score for a keyword combining all available signals.
+
+        Score components:
+        - Autocomplete presence: up to 100 points (pos 1 = 100, pos 10 = 10)
+        - Low competition: up to 30 points
+        - High demand (BSR): up to 25 points
+        - Real ads impressions: up to 20 points
+        - Real ads orders: up to 30 points
+
+        Args:
+            keyword_id: Database ID of the keyword.
+
+        Returns:
+            Composite score (0-205 theoretical max).
+        """
+        kw = self._repo.get_keyword_with_metrics(keyword_id)
+        if kw is None:
+            return 0.0
+
+        score = 0.0
+
+        # Autocomplete presence (searched frequently)
+        autocomplete_position = kw['autocomplete_position']
+        if autocomplete_position is not None and autocomplete_position > 0:
+            score += max(0, 11 - autocomplete_position) * 10  # pos 1=100, pos 10=10
+
+        # Low competition (easier to rank)
+        competition_count = kw['competition_count']
+        if competition_count is not None:
+            if competition_count < 50000:
+                score += 30
+            elif competition_count < 200000:
+                score += 15
+
+        # Top results have good BSR (high demand)
+        avg_bsr = kw['avg_bsr_top_results']
+        if avg_bsr is not None:
+            if avg_bsr < 100000:
+                score += 25
+            elif avg_bsr < 500000:
+                score += 10
+
+        # Real ads data (highest quality signal)
+        impressions = kw['impressions']
+        if impressions is not None and impressions > 100:
+            score += 20
+        elif impressions is not None and impressions > 0:
+            score += 5
+
+        orders = kw['orders']
+        if orders is not None and orders > 0:
+            score += 30
+            # Bonus for multiple orders
+            if orders >= 5:
+                score += 10
+            if orders >= 10:
+                score += 10
+
+        return score
+
+    def score_all_keywords(self) -> int:
+        """Score all active keywords in the database.
+
+        Returns:
+            Count of keywords scored.
+        """
+        keyword_ids = self._repo.get_all_keyword_ids(active_only=True)
+        count = 0
+
+        for keyword_id in keyword_ids:
+            score = self.score_keyword(keyword_id)
+            self._repo.update_score(keyword_id, score)
+            count += 1
+
+        logger.info(f'Scored {count} keywords')
+        return count
+
+    def get_top_keywords(self, limit=50, min_score=0) -> list:
+        """Get keywords ranked by score.
+
+        Args:
+            limit: Maximum number of keywords to return.
+            min_score: Minimum score threshold.
+
+        Returns:
+            List of sqlite3.Row objects with keyword data and metrics.
+        """
+        return self._repo.get_keywords_with_latest_metrics(
+            limit=limit,
+            min_score=min_score,
+            order_by='score',
+        )

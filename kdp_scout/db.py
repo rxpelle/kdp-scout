@@ -157,15 +157,28 @@ def get_connection():
 
 
 def init_db():
-    """Initialize the database schema and indexes."""
+    """Initialize the database schema, indexes, and run migrations."""
     conn = get_connection()
     try:
         conn.executescript(SCHEMA_SQL)
         conn.executescript(INDEX_SQL)
+
+        # Migration: add score column to keywords if not present
+        _migrate_add_score_column(conn)
+
         conn.commit()
         logger.info(f'Database initialized at {Config.get_db_path()}')
     finally:
         conn.close()
+
+
+def _migrate_add_score_column(conn):
+    """Add score column to keywords table if it doesn't exist."""
+    cursor = conn.execute("PRAGMA table_info(keywords)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if 'score' not in columns:
+        conn.execute('ALTER TABLE keywords ADD COLUMN score REAL DEFAULT 0')
+        logger.info('Migration: added score column to keywords table')
 
 
 class KeywordRepository:
@@ -228,25 +241,48 @@ class KeywordRepository:
     def add_metric(self, keyword_id, autocomplete_position=None, **kwargs):
         """Add a keyword_metrics snapshot for today.
 
+        If a snapshot already exists for today, non-None fields are merged
+        (existing values are preserved unless new values are provided).
+
         Args:
             keyword_id: ID of the keyword.
             autocomplete_position: Position in autocomplete results.
-            **kwargs: Additional metric fields.
+            **kwargs: Additional metric fields (impressions, clicks, orders, etc.).
         """
         today = date.today().isoformat()
 
         # Check if we already have a snapshot for today
         existing = self._conn.execute(
-            'SELECT id FROM keyword_metrics WHERE keyword_id = ? AND snapshot_date = ?',
+            'SELECT * FROM keyword_metrics WHERE keyword_id = ? AND snapshot_date = ?',
             (keyword_id, today),
         ).fetchone()
 
         if existing:
-            # Update existing snapshot
-            self._conn.execute(
-                'UPDATE keyword_metrics SET autocomplete_position = ? WHERE id = ?',
-                (autocomplete_position, existing['id']),
-            )
+            # Merge: update only fields that are provided and not None
+            updates = []
+            params = []
+
+            if autocomplete_position is not None:
+                updates.append('autocomplete_position = ?')
+                params.append(autocomplete_position)
+
+            merge_fields = [
+                'estimated_volume', 'volume_source', 'competition_count',
+                'avg_bsr_top_results', 'suggested_bid', 'impressions',
+                'clicks', 'orders',
+            ]
+            for field in merge_fields:
+                val = kwargs.get(field)
+                if val is not None:
+                    updates.append(f'{field} = ?')
+                    params.append(val)
+
+            if updates:
+                params.append(existing['id'])
+                self._conn.execute(
+                    f'UPDATE keyword_metrics SET {", ".join(updates)} WHERE id = ?',
+                    params,
+                )
         else:
             self._conn.execute(
                 'INSERT INTO keyword_metrics '
@@ -290,19 +326,42 @@ class KeywordRepository:
         row = self._conn.execute('SELECT COUNT(*) as cnt FROM keywords').fetchone()
         return row['cnt']
 
-    def get_keywords_with_latest_metrics(self, limit=20):
-        """Get keywords with their most recent metrics, sorted by autocomplete position.
+    def get_keywords_with_latest_metrics(self, limit=20, min_score=0,
+                                         order_by='score'):
+        """Get keywords with their most recent metrics.
 
         Args:
             limit: Maximum number of results.
+            min_score: Minimum keyword score to include.
+            order_by: Sort order - 'score', 'autocomplete', or 'impressions'.
 
         Returns:
             List of sqlite3.Row objects with keyword and metric fields.
         """
-        query = """
-            SELECT k.keyword, k.source, k.first_seen, k.category,
+        if order_by == 'score':
+            order_clause = """
+                ORDER BY k.score DESC,
+                    CASE WHEN km.autocomplete_position IS NOT NULL THEN 0 ELSE 1 END,
+                    km.autocomplete_position ASC
+            """
+        elif order_by == 'impressions':
+            order_clause = """
+                ORDER BY km.impressions DESC NULLS LAST,
+                    k.score DESC
+            """
+        else:
+            order_clause = """
+                ORDER BY
+                    CASE WHEN km.autocomplete_position IS NOT NULL THEN 0 ELSE 1 END,
+                    km.autocomplete_position ASC,
+                    k.last_updated DESC
+            """
+
+        query = f"""
+            SELECT k.id, k.keyword, k.source, k.first_seen, k.category, k.score,
                    km.autocomplete_position, km.snapshot_date,
-                   km.estimated_volume, km.competition_count
+                   km.estimated_volume, km.competition_count,
+                   km.avg_bsr_top_results, km.impressions, km.clicks, km.orders
             FROM keywords k
             LEFT JOIN keyword_metrics km ON k.id = km.keyword_id
                 AND km.snapshot_date = (
@@ -310,14 +369,84 @@ class KeywordRepository:
                     FROM keyword_metrics
                     WHERE keyword_id = k.id
                 )
-            WHERE k.is_active = 1
-            ORDER BY
-                CASE WHEN km.autocomplete_position IS NOT NULL THEN 0 ELSE 1 END,
-                km.autocomplete_position ASC,
-                k.last_updated DESC
+            WHERE k.is_active = 1 AND k.score >= ?
+            {order_clause}
             LIMIT ?
         """
-        return self._conn.execute(query, (limit,)).fetchall()
+        return self._conn.execute(query, (min_score, limit)).fetchall()
+
+    def get_keyword_with_metrics(self, keyword_id):
+        """Get a single keyword with its latest metrics.
+
+        Args:
+            keyword_id: ID of the keyword.
+
+        Returns:
+            sqlite3.Row or None.
+        """
+        query = """
+            SELECT k.id, k.keyword, k.source, k.first_seen, k.category, k.score,
+                   km.autocomplete_position, km.snapshot_date,
+                   km.estimated_volume, km.competition_count,
+                   km.avg_bsr_top_results, km.impressions, km.clicks, km.orders
+            FROM keywords k
+            LEFT JOIN keyword_metrics km ON k.id = km.keyword_id
+                AND km.snapshot_date = (
+                    SELECT MAX(snapshot_date)
+                    FROM keyword_metrics
+                    WHERE keyword_id = k.id
+                )
+            WHERE k.id = ?
+        """
+        return self._conn.execute(query, (keyword_id,)).fetchone()
+
+    def update_score(self, keyword_id, score):
+        """Update the score for a keyword.
+
+        Args:
+            keyword_id: ID of the keyword.
+            score: The computed score value.
+        """
+        self._conn.execute(
+            'UPDATE keywords SET score = ? WHERE id = ?',
+            (score, keyword_id),
+        )
+        self._conn.commit()
+
+    def get_all_keyword_ids(self, active_only=True):
+        """Get all keyword IDs.
+
+        Args:
+            active_only: If True, only return active keywords.
+
+        Returns:
+            List of integer IDs.
+        """
+        query = 'SELECT id FROM keywords'
+        if active_only:
+            query += ' WHERE is_active = 1'
+        rows = self._conn.execute(query).fetchall()
+        return [row['id'] for row in rows]
+
+    def get_keyword_metrics_history(self, keyword_id, days=30):
+        """Get metric snapshots for a keyword within a date range.
+
+        Args:
+            keyword_id: ID of the keyword.
+            days: Number of days to look back.
+
+        Returns:
+            List of sqlite3.Row objects ordered by date ascending.
+        """
+        query = """
+            SELECT * FROM keyword_metrics
+            WHERE keyword_id = ?
+              AND snapshot_date >= date('now', ?)
+            ORDER BY snapshot_date ASC
+        """
+        return self._conn.execute(
+            query, (keyword_id, f'-{days} days')
+        ).fetchall()
 
 
 class BookRepository:
@@ -552,10 +681,7 @@ class BookRepository:
 
 
 class AdsRepository:
-    """Data access for ads_search_terms table.
-
-    Stub for Phase 3 - Amazon Ads data import.
-    """
+    """Data access for ads_search_terms table."""
 
     def __init__(self, conn=None):
         self._conn = conn or get_connection()
@@ -564,6 +690,119 @@ class AdsRepository:
     def close(self):
         if self._owns_conn:
             self._conn.close()
+
+    def add_search_term(self, campaign_name=None, ad_group=None,
+                        search_term=None, keyword_match_type=None,
+                        impressions=None, clicks=None, ctr=None,
+                        spend=None, sales=None, acos=None, orders=None,
+                        report_date=None, imported_at=None):
+        """Add an ads search term record.
+
+        Args:
+            campaign_name: Campaign name from the report.
+            ad_group: Ad group name.
+            search_term: The customer search term.
+            keyword_match_type: Match type (broad, phrase, exact).
+            impressions: Number of impressions.
+            clicks: Number of clicks.
+            ctr: Click-through rate as decimal.
+            spend: Total spend in dollars.
+            sales: Total sales in dollars.
+            acos: Advertising cost of sales as decimal.
+            orders: Number of orders.
+            report_date: Date of the report data.
+            imported_at: Timestamp of import.
+
+        Returns:
+            The inserted row ID.
+        """
+        cursor = self._conn.execute(
+            'INSERT INTO ads_search_terms '
+            '(campaign_name, ad_group, search_term, keyword_match_type, '
+            'impressions, clicks, ctr, spend, sales, acos, orders, '
+            'report_date, imported_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (
+                campaign_name, ad_group, search_term, keyword_match_type,
+                impressions, clicks, ctr, spend, sales, acos, orders,
+                report_date, imported_at,
+            ),
+        )
+        self._conn.commit()
+        return cursor.lastrowid
+
+    def get_all_search_terms(self, campaign_filter=None):
+        """Get all search terms, optionally filtered by campaign.
+
+        Args:
+            campaign_filter: Optional campaign name substring to filter by.
+
+        Returns:
+            List of sqlite3.Row objects.
+        """
+        if campaign_filter:
+            return self._conn.execute(
+                'SELECT * FROM ads_search_terms '
+                'WHERE campaign_name LIKE ? '
+                'ORDER BY orders DESC, impressions DESC',
+                (f'%{campaign_filter}%',),
+            ).fetchall()
+        return self._conn.execute(
+            'SELECT * FROM ads_search_terms '
+            'ORDER BY orders DESC, impressions DESC'
+        ).fetchall()
+
+    def get_aggregated_search_terms(self):
+        """Get search terms aggregated across all report dates.
+
+        Returns:
+            List of sqlite3.Row objects with summed metrics per search term.
+        """
+        return self._conn.execute(
+            'SELECT search_term, '
+            '  SUM(impressions) as total_impressions, '
+            '  SUM(clicks) as total_clicks, '
+            '  SUM(spend) as total_spend, '
+            '  SUM(sales) as total_sales, '
+            '  SUM(orders) as total_orders, '
+            '  CASE WHEN SUM(sales) > 0 '
+            '    THEN SUM(spend) / SUM(sales) '
+            '    ELSE NULL END as avg_acos, '
+            '  CASE WHEN SUM(impressions) > 0 '
+            '    THEN CAST(SUM(clicks) AS REAL) / SUM(impressions) '
+            '    ELSE NULL END as avg_ctr '
+            'FROM ads_search_terms '
+            'GROUP BY search_term '
+            'ORDER BY total_orders DESC, total_impressions DESC'
+        ).fetchall()
+
+    def get_search_term_count(self):
+        """Get the total number of search term records."""
+        row = self._conn.execute(
+            'SELECT COUNT(*) as cnt FROM ads_search_terms'
+        ).fetchone()
+        return row['cnt']
+
+    def get_opportunity_keywords(self):
+        """Get keywords with impressions but no orders (opportunity keywords).
+
+        These are search terms where your ads appeared but didn't convert,
+        indicating potential keyword gaps or optimization opportunities.
+
+        Returns:
+            List of sqlite3.Row objects.
+        """
+        return self._conn.execute(
+            'SELECT search_term, '
+            '  SUM(impressions) as total_impressions, '
+            '  SUM(clicks) as total_clicks, '
+            '  SUM(spend) as total_spend, '
+            '  SUM(orders) as total_orders '
+            'FROM ads_search_terms '
+            'GROUP BY search_term '
+            'HAVING SUM(impressions) > 0 AND (SUM(orders) IS NULL OR SUM(orders) = 0) '
+            'ORDER BY total_impressions DESC'
+        ).fetchall()
 
 
 class CategoryRepository:

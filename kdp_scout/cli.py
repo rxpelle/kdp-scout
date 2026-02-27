@@ -1,7 +1,7 @@
 """KDP Scout CLI entry point.
 
 Provides the command-line interface using Click and Rich for
-keyword research and competitor analysis.
+keyword research, competitor analysis, ads integration, and reporting.
 """
 
 import sys
@@ -150,7 +150,7 @@ def mine(seed, depth, department):
     )
 
 
-# ── Config command group ──────────────────────────────────────────
+# -- Config command group --------------------------------------------------
 
 
 @main.group()
@@ -197,7 +197,7 @@ def config_init():
     console.print('[bold green]Initialization complete![/bold green]')
 
 
-# ── Track command group ───────────────────────────────────────────
+# -- Track command group ---------------------------------------------------
 
 
 @main.group()
@@ -520,7 +520,143 @@ def track_compare():
         engine.close()
 
 
-# ── Report command group ──────────────────────────────────────────
+# -- Import Ads command ----------------------------------------------------
+
+
+@main.command('import-ads')
+@click.argument('filepath', type=click.Path(exists=True))
+@click.option(
+    '--campaign',
+    default=None,
+    help='Filter by campaign name (substring match).',
+)
+def import_ads(filepath, campaign):
+    """Import Amazon Ads search term report CSV.
+
+    FILEPATH is the path to the exported CSV file from Amazon Ads console.
+
+    Examples:
+        kdp-scout import-ads search-terms-report.csv
+        kdp-scout import-ads report.csv --campaign "Aethelred"
+    """
+    from kdp_scout.collectors.ads_importer import AdsImporter
+
+    console.print(
+        Panel(
+            f'[bold]File:[/bold] {filepath}\n'
+            f'[bold]Campaign filter:[/bold] {campaign or "(all campaigns)"}',
+            title='[bold cyan]Amazon Ads Import[/bold cyan]',
+            border_style='cyan',
+        )
+    )
+
+    importer = AdsImporter()
+    try:
+        with console.status('[bold cyan]Importing search term report...'):
+            result = importer.import_csv(filepath, campaign_filter=campaign)
+
+        # Display results
+        summary_table = Table(show_header=False, box=None, padding=(0, 2))
+        summary_table.add_column('Label', style='bold')
+        summary_table.add_column('Value', style='green')
+
+        summary_table.add_row('Search terms imported', str(result['imported']))
+        summary_table.add_row('Rows skipped', str(result['skipped']))
+        summary_table.add_row('Keywords enriched', str(result['keywords_enriched']))
+
+        console.print(
+            Panel(
+                summary_table,
+                title='[bold green]Import Summary[/bold green]',
+                border_style='green',
+            )
+        )
+
+        if result['keywords_enriched'] > 0:
+            console.print(
+                '\n[dim]Tip: Run "kdp-scout score" to recalculate keyword '
+                'scores with the new ads data.[/dim]'
+            )
+
+    except FileNotFoundError as e:
+        console.print(f'[red]File not found: {e}[/red]')
+    except ValueError as e:
+        console.print(f'[red]Invalid file format: {e}[/red]')
+    except Exception as e:
+        console.print(f'[red]Error importing: {e}[/red]')
+        logging.getLogger(__name__).exception('Ads import failed')
+    finally:
+        importer.close()
+
+
+# -- Score command ---------------------------------------------------------
+
+
+@main.command('score')
+@click.option(
+    '--recalculate',
+    is_flag=True,
+    help='Force recalculation of all scores.',
+)
+def score(recalculate):
+    """Score all keywords based on available signals.
+
+    Combines autocomplete position, competition data, and ads performance
+    into a composite score for each keyword.
+
+    Examples:
+        kdp-scout score
+        kdp-scout score --recalculate
+    """
+    from kdp_scout.keyword_engine import KeywordScorer
+
+    scorer = KeywordScorer()
+    try:
+        with console.status('[bold cyan]Scoring keywords...'):
+            count = scorer.score_all_keywords()
+
+        console.print(
+            f'[bold green]Scored {count} keywords[/bold green]\n'
+        )
+
+        # Show top 10 preview
+        top = scorer.get_top_keywords(limit=10, min_score=0)
+        if top:
+            table = Table(
+                title='Top 10 Keywords by Score',
+                show_lines=False,
+            )
+            table.add_column('#', style='dim', width=4, justify='right')
+            table.add_column('Keyword', style='bold', ratio=3)
+            table.add_column('Score', justify='right', width=7,
+                             style='bold cyan')
+            table.add_column('AC Pos', justify='center', width=7)
+            table.add_column('Impressions', justify='right', width=12)
+            table.add_column('Orders', justify='right', width=8)
+
+            for i, kw in enumerate(top, 1):
+                pos = (str(kw['autocomplete_position'])
+                       if kw['autocomplete_position'] else '-')
+                imp = (f"{kw['impressions']:,}"
+                       if kw['impressions'] else '-')
+                orders = (str(kw['orders'])
+                          if kw['orders'] else '-')
+                score_val = f"{kw['score']:.0f}" if kw['score'] else '0'
+
+                table.add_row(str(i), kw['keyword'], score_val,
+                              pos, imp, orders)
+
+            console.print(table)
+
+        console.print(
+            '\n[dim]Run "kdp-scout report keywords" for the full report.[/dim]'
+        )
+
+    finally:
+        scorer.close()
+
+
+# -- Report command group --------------------------------------------------
 
 
 @main.group()
@@ -531,18 +667,26 @@ def report():
 
 @report.command('keywords')
 @click.option('--limit', default=50, help='Maximum keywords to display.')
-def report_keywords(limit):
-    """Show top keywords by autocomplete position.
+@click.option('--min-score', default=0, type=float,
+              help='Minimum score threshold.')
+@click.option('--format', 'output_format',
+              type=click.Choice(['table', 'csv', 'json']),
+              default='table', help='Output format.')
+def report_keywords(limit, min_score, output_format):
+    """Show top keywords ranked by score.
 
-    Example:
+    Examples:
         kdp-scout report keywords
-        kdp-scout report keywords --limit 100
+        kdp-scout report keywords --limit 100 --min-score 50
+        kdp-scout report keywords --format csv > keywords.csv
     """
     from kdp_scout.reporting import ReportingEngine
 
     engine = ReportingEngine()
     try:
-        engine.keyword_summary(limit=limit)
+        engine.keyword_summary(
+            limit=limit, min_score=min_score, output_format=output_format,
+        )
     finally:
         engine.close()
 
@@ -559,6 +703,113 @@ def report_competitors():
     engine = ReportingEngine()
     try:
         engine.competitor_summary()
+    finally:
+        engine.close()
+
+
+@report.command('ads')
+def report_ads():
+    """Show Amazon Ads search term performance report.
+
+    Displays aggregated performance data from imported search term reports.
+
+    Example:
+        kdp-scout report ads
+    """
+    from kdp_scout.reporting import ReportingEngine
+
+    engine = ReportingEngine()
+    try:
+        engine.ads_performance()
+    finally:
+        engine.close()
+
+
+@report.command('gaps')
+def report_gaps():
+    """Show keyword gap analysis.
+
+    Identifies keywords where you get impressions but no orders,
+    indicating potential optimization opportunities.
+
+    Example:
+        kdp-scout report gaps
+    """
+    from kdp_scout.reporting import ReportingEngine
+
+    engine = ReportingEngine()
+    try:
+        engine.keyword_gaps()
+    finally:
+        engine.close()
+
+
+@report.command('trends')
+@click.option('--days', default=30, help='Number of days to look back.')
+def report_trends(days):
+    """Show keyword metric changes over time.
+
+    Example:
+        kdp-scout report trends
+        kdp-scout report trends --days 7
+    """
+    from kdp_scout.reporting import ReportingEngine
+
+    engine = ReportingEngine()
+    try:
+        engine.trend_report(days=days)
+    finally:
+        engine.close()
+
+
+# -- Export command group --------------------------------------------------
+
+
+@main.group()
+def export():
+    """Export keywords for Amazon Ads and KDP."""
+    pass
+
+
+@export.command('ads')
+@click.option('--min-score', default=0, type=float,
+              help='Minimum keyword score to include.')
+@click.option('--format', 'output_format',
+              type=click.Choice(['csv']),
+              default='csv', help='Output format.')
+def export_ads(min_score, output_format):
+    """Export keywords formatted for Amazon Ads campaign import.
+
+    Outputs CSV to stdout for easy piping to a file.
+
+    Examples:
+        kdp-scout export ads
+        kdp-scout export ads --min-score 50 > high-value-keywords.csv
+    """
+    from kdp_scout.reporting import ReportingEngine
+
+    engine = ReportingEngine()
+    try:
+        engine.export_for_ads(min_score=min_score, output_format=output_format)
+    finally:
+        engine.close()
+
+
+@export.command('backend')
+def export_backend():
+    """Generate optimized KDP backend keyword slots.
+
+    Packs the highest-scoring keywords into 7 slots of 50 bytes each,
+    ready to copy-paste into the KDP dashboard.
+
+    Example:
+        kdp-scout export backend
+    """
+    from kdp_scout.reporting import ReportingEngine
+
+    engine = ReportingEngine()
+    try:
+        engine.export_backend_keywords()
     finally:
         engine.close()
 
