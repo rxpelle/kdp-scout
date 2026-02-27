@@ -321,10 +321,7 @@ class KeywordRepository:
 
 
 class BookRepository:
-    """Data access for books and book_snapshots tables.
-
-    Stub for Phase 2 - competitor tracking.
-    """
+    """Data access for books and book_snapshots tables."""
 
     def __init__(self, conn=None):
         self._conn = conn or get_connection()
@@ -333,6 +330,225 @@ class BookRepository:
     def close(self):
         if self._owns_conn:
             self._conn.close()
+
+    def find_by_asin(self, asin):
+        """Find a book record by its ASIN.
+
+        Args:
+            asin: Amazon Standard Identification Number.
+
+        Returns:
+            sqlite3.Row or None.
+        """
+        cursor = self._conn.execute(
+            'SELECT * FROM books WHERE asin = ?',
+            (asin.upper().strip(),),
+        )
+        return cursor.fetchone()
+
+    def upsert_book(self, asin, title=None, author=None, is_own=False, notes=None):
+        """Insert a book or update its metadata.
+
+        Args:
+            asin: Amazon ASIN.
+            title: Book title.
+            author: Author name.
+            is_own: Whether this is the user's own book.
+            notes: Optional notes.
+
+        Returns:
+            Tuple of (book_id, is_new) where is_new is True if inserted.
+        """
+        asin = asin.upper().strip()
+        now = datetime.now().isoformat()
+
+        existing = self.find_by_asin(asin)
+        if existing:
+            # Update fields if new values provided
+            updates = []
+            params = []
+            if title is not None:
+                updates.append('title = ?')
+                params.append(title)
+            if author is not None:
+                updates.append('author = ?')
+                params.append(author)
+            if is_own:
+                updates.append('is_own = ?')
+                params.append(1)
+            if notes is not None:
+                updates.append('notes = ?')
+                params.append(notes)
+
+            if updates:
+                params.append(existing['id'])
+                self._conn.execute(
+                    f'UPDATE books SET {", ".join(updates)} WHERE id = ?',
+                    params,
+                )
+                self._conn.commit()
+
+            return existing['id'], False
+
+        cursor = self._conn.execute(
+            'INSERT INTO books (asin, title, author, is_own, added_date, notes) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            (asin, title, author, 1 if is_own else 0, now, notes),
+        )
+        self._conn.commit()
+        return cursor.lastrowid, True
+
+    def remove_book(self, asin):
+        """Remove a book and its snapshots from tracking.
+
+        Args:
+            asin: Amazon ASIN.
+
+        Returns:
+            True if the book was found and removed, False otherwise.
+        """
+        asin = asin.upper().strip()
+        existing = self.find_by_asin(asin)
+        if not existing:
+            return False
+
+        book_id = existing['id']
+        self._conn.execute(
+            'DELETE FROM book_snapshots WHERE book_id = ?', (book_id,)
+        )
+        self._conn.execute(
+            'DELETE FROM books WHERE id = ?', (book_id,)
+        )
+        self._conn.commit()
+        return True
+
+    def get_all_books(self):
+        """Get all tracked books.
+
+        Returns:
+            List of sqlite3.Row objects.
+        """
+        return self._conn.execute(
+            'SELECT * FROM books ORDER BY is_own DESC, title ASC'
+        ).fetchall()
+
+    def add_snapshot(self, book_id, bsr_overall=None, bsr_category=None,
+                     price_kindle=None, price_paperback=None,
+                     review_count=None, avg_rating=None, page_count=None,
+                     estimated_daily_sales=None, estimated_monthly_revenue=None):
+        """Add a snapshot for a tracked book.
+
+        If a snapshot already exists for today, it is updated.
+
+        Args:
+            book_id: ID of the book.
+            bsr_overall: Overall Best Sellers Rank.
+            bsr_category: JSON string of category ranks.
+            price_kindle: Kindle price.
+            price_paperback: Paperback price.
+            review_count: Number of reviews.
+            avg_rating: Average star rating.
+            page_count: Number of pages.
+            estimated_daily_sales: Estimated daily unit sales.
+            estimated_monthly_revenue: Estimated monthly revenue.
+
+        Returns:
+            The snapshot ID.
+        """
+        today = date.today().isoformat()
+
+        existing = self._conn.execute(
+            'SELECT id FROM book_snapshots WHERE book_id = ? AND snapshot_date = ?',
+            (book_id, today),
+        ).fetchone()
+
+        if existing:
+            self._conn.execute(
+                'UPDATE book_snapshots SET '
+                'bsr_overall = ?, bsr_category = ?, '
+                'price_kindle = ?, price_paperback = ?, '
+                'review_count = ?, avg_rating = ?, page_count = ?, '
+                'estimated_daily_sales = ?, estimated_monthly_revenue = ? '
+                'WHERE id = ?',
+                (
+                    bsr_overall, bsr_category,
+                    price_kindle, price_paperback,
+                    review_count, avg_rating, page_count,
+                    estimated_daily_sales, estimated_monthly_revenue,
+                    existing['id'],
+                ),
+            )
+            self._conn.commit()
+            return existing['id']
+
+        cursor = self._conn.execute(
+            'INSERT INTO book_snapshots '
+            '(book_id, snapshot_date, bsr_overall, bsr_category, '
+            'price_kindle, price_paperback, review_count, avg_rating, '
+            'page_count, estimated_daily_sales, estimated_monthly_revenue) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (
+                book_id, today, bsr_overall, bsr_category,
+                price_kindle, price_paperback,
+                review_count, avg_rating, page_count,
+                estimated_daily_sales, estimated_monthly_revenue,
+            ),
+        )
+        self._conn.commit()
+        return cursor.lastrowid
+
+    def get_latest_snapshot(self, book_id):
+        """Get the most recent snapshot for a book.
+
+        Args:
+            book_id: ID of the book.
+
+        Returns:
+            sqlite3.Row or None.
+        """
+        return self._conn.execute(
+            'SELECT * FROM book_snapshots WHERE book_id = ? '
+            'ORDER BY snapshot_date DESC LIMIT 1',
+            (book_id,),
+        ).fetchone()
+
+    def get_previous_snapshot(self, book_id):
+        """Get the second most recent snapshot for a book (for comparison).
+
+        Args:
+            book_id: ID of the book.
+
+        Returns:
+            sqlite3.Row or None.
+        """
+        return self._conn.execute(
+            'SELECT * FROM book_snapshots WHERE book_id = ? '
+            'ORDER BY snapshot_date DESC LIMIT 1 OFFSET 1',
+            (book_id,),
+        ).fetchone()
+
+    def get_books_with_latest_snapshot(self):
+        """Get all tracked books with their latest snapshot data.
+
+        Returns:
+            List of dicts with book and snapshot fields merged.
+        """
+        query = """
+            SELECT b.*, bs.bsr_overall, bs.bsr_category,
+                   bs.price_kindle, bs.price_paperback,
+                   bs.review_count, bs.avg_rating, bs.page_count,
+                   bs.estimated_daily_sales, bs.estimated_monthly_revenue,
+                   bs.snapshot_date as last_snapshot_date
+            FROM books b
+            LEFT JOIN book_snapshots bs ON b.id = bs.book_id
+                AND bs.snapshot_date = (
+                    SELECT MAX(snapshot_date)
+                    FROM book_snapshots
+                    WHERE book_id = b.id
+                )
+            ORDER BY b.is_own DESC, bs.bsr_overall ASC
+        """
+        return self._conn.execute(query).fetchall()
 
 
 class AdsRepository:

@@ -5,6 +5,7 @@ keyword research and competitor analysis.
 """
 
 import sys
+import json
 import signal
 import logging
 
@@ -149,6 +150,9 @@ def mine(seed, depth, department):
     )
 
 
+# ── Config command group ──────────────────────────────────────────
+
+
 @main.group()
 def config():
     """View and manage configuration."""
@@ -191,6 +195,372 @@ def config_init():
         console.print('[green].env file found[/green]')
 
     console.print('[bold green]Initialization complete![/bold green]')
+
+
+# ── Track command group ───────────────────────────────────────────
+
+
+@main.group()
+def track():
+    """Track and monitor competitor books."""
+    pass
+
+
+@track.command('add')
+@click.argument('asin')
+@click.option('--name', default=None, help='Display name for the book.')
+@click.option('--own', is_flag=True, help='Mark as your own book.')
+def track_add(asin, name, own):
+    """Add a book to tracking by ASIN.
+
+    Scrapes the Amazon product page for initial data and begins tracking.
+
+    Examples:
+        kdp-scout track add B003K16PJW --name "The Name of the Rose"
+        kdp-scout track add B0GMRN61MG --own --name "The Aethelred Cipher"
+    """
+    from kdp_scout.competitor_engine import CompetitorEngine
+    from kdp_scout.collectors.product_scraper import CaptchaDetected
+    from kdp_scout.collectors.bsr_model import sales_velocity_label
+
+    engine = CompetitorEngine()
+    try:
+        console.print(f'\n[bold]Adding book:[/bold] {asin.upper()}')
+        if name:
+            console.print(f'[bold]Name:[/bold] {name}')
+        if own:
+            console.print(f'[bold]Type:[/bold] [green]Your book[/green]')
+        console.print()
+
+        with console.status('[bold cyan]Scraping Amazon product page...'):
+            result = engine.add_book(asin, name=name, is_own=own)
+
+        if result is None:
+            console.print('[red]Failed to add book. Scraping returned no data.[/red]')
+            return
+
+        # Build the info panel
+        scraped = result.get('scraped') or {}
+        snapshot = result.get('snapshot') or {}
+        title = result.get('title') or 'Unknown'
+        author = result.get('author') or 'Unknown'
+
+        lines = [
+            f'[bold]Title:[/bold] {title}',
+            f'[bold]Author:[/bold] {author}',
+            f'[bold]ASIN:[/bold] {result["asin"]}',
+        ]
+
+        bsr = snapshot.get('bsr_overall')
+        if bsr:
+            lines.append(f'[bold]BSR (Overall):[/bold] #{bsr:,}')
+
+        # Category BSR
+        bsr_cats = snapshot.get('bsr_categories', {})
+        if bsr_cats:
+            for cat, rank in bsr_cats.items():
+                lines.append(f'  [dim]#{rank:,} in {cat}[/dim]')
+
+        price_k = snapshot.get('price_kindle')
+        price_p = snapshot.get('price_paperback')
+        if price_k:
+            lines.append(f'[bold]Kindle Price:[/bold] ${price_k:.2f}')
+        if price_p:
+            lines.append(f'[bold]Paperback Price:[/bold] ${price_p:.2f}')
+
+        reviews = snapshot.get('review_count')
+        rating = snapshot.get('avg_rating')
+        if reviews is not None:
+            lines.append(f'[bold]Reviews:[/bold] {reviews:,}')
+        if rating is not None:
+            lines.append(f'[bold]Rating:[/bold] {rating:.1f}/5.0')
+
+        pages = snapshot.get('page_count')
+        if pages:
+            lines.append(f'[bold]Pages:[/bold] {pages}')
+
+        daily = snapshot.get('estimated_daily_sales')
+        monthly = snapshot.get('estimated_monthly_revenue')
+        if daily is not None:
+            velocity = sales_velocity_label(daily)
+            lines.append(f'[bold]Est. Daily Sales:[/bold] {daily:.1f} ({velocity})')
+        if monthly is not None:
+            lines.append(f'[bold]Est. Monthly Revenue:[/bold] ${monthly:,.2f}')
+
+        pub_date = scraped.get('publication_date')
+        if pub_date:
+            lines.append(f'[bold]Published:[/bold] {pub_date}')
+
+        status = '[green]NEW - Added to tracking[/green]' if result['is_new'] else '[yellow]Already tracked - Updated[/yellow]'
+        lines.append(f'\n[bold]Status:[/bold] {status}')
+
+        border = 'green' if own else 'cyan'
+        panel_title = '[bold green]Your Book[/bold green]' if own else '[bold cyan]Competitor Book[/bold cyan]'
+
+        console.print(Panel(
+            '\n'.join(lines),
+            title=panel_title,
+            border_style=border,
+        ))
+
+    except CaptchaDetected:
+        console.print(
+            '[red bold]CAPTCHA detected![/red bold] Amazon is blocking scraping.\n'
+            '[yellow]Try again in a few minutes, or configure a proxy in .env.[/yellow]'
+        )
+    except Exception as e:
+        console.print(f'[red]Error adding book: {e}[/red]')
+        logging.getLogger(__name__).exception('Failed to add book')
+    finally:
+        engine.close()
+
+
+@track.command('remove')
+@click.argument('asin')
+def track_remove(asin):
+    """Remove a book from tracking.
+
+    Example:
+        kdp-scout track remove B003K16PJW
+    """
+    from kdp_scout.competitor_engine import CompetitorEngine
+
+    engine = CompetitorEngine()
+    try:
+        removed = engine.remove_book(asin)
+        if removed:
+            console.print(f'[green]Removed {asin.upper()} from tracking.[/green]')
+        else:
+            console.print(f'[yellow]Book {asin.upper()} not found in tracking.[/yellow]')
+    finally:
+        engine.close()
+
+
+@track.command('list')
+def track_list():
+    """List all tracked books with latest snapshot data."""
+    from kdp_scout.competitor_engine import CompetitorEngine
+
+    engine = CompetitorEngine()
+    try:
+        books = engine.list_books()
+
+        if not books:
+            console.print(
+                '[yellow]No books tracked yet. Use "kdp-scout track add <ASIN>" to start.[/yellow]'
+            )
+            return
+
+        table = Table(
+            title='Tracked Books',
+            show_lines=True,
+            expand=True,
+        )
+        table.add_column('ASIN', width=12, no_wrap=True)
+        table.add_column('Title', ratio=3, no_wrap=False)
+        table.add_column('BSR', justify='right', width=9)
+        table.add_column('Price', justify='right', width=7)
+        table.add_column('Reviews', justify='right', width=8)
+        table.add_column('Rating', justify='center', width=6)
+        table.add_column('Sales/Day', justify='right', width=10)
+        table.add_column('Rev/Month', justify='right', width=10)
+        table.add_column('Updated', width=10)
+
+        for book in books:
+            is_own = book['is_own']
+            style = 'bold green' if is_own else ''
+
+            bsr = f"{int(book['bsr_overall']):,}" if book['bsr_overall'] else '-'
+            price = f"${book['price_kindle']:.2f}" if book['price_kindle'] and book['price_kindle'] > 0 else '-'
+            reviews = f"{int(book['review_count']):,}" if book['review_count'] else '-'
+            rating = f"{book['avg_rating']:.1f}" if book['avg_rating'] else '-'
+            daily = f"{book['estimated_daily_sales']:.1f}" if book['estimated_daily_sales'] else '-'
+            monthly = f"${book['estimated_monthly_revenue']:,.0f}" if book['estimated_monthly_revenue'] else '-'
+            updated = (book['last_snapshot_date'] or '')[:10] or '-'
+
+            title = book['title'] or 'Unknown'
+            author = book['author'] or ''
+            display_title = f'{title}\nby {author}' if author else title
+            if is_own:
+                display_title = f'[bold]{display_title}[/bold]'
+
+            table.add_row(
+                book['asin'],
+                display_title,
+                bsr,
+                price,
+                reviews,
+                rating,
+                daily,
+                monthly,
+                updated,
+                style=style,
+            )
+
+        console.print(table)
+        console.print(f'\n[dim]{len(books)} book(s) tracked[/dim]')
+
+    finally:
+        engine.close()
+
+
+@track.command('snapshot')
+@click.option('--quiet', is_flag=True, help='Suppress output (for cron jobs).')
+def track_snapshot(quiet):
+    """Take a fresh snapshot of all tracked books.
+
+    Scrapes current data for every tracked book and stores BSR,
+    price, review, and sales estimate snapshots.
+
+    Example:
+        kdp-scout track snapshot
+        kdp-scout track snapshot --quiet
+    """
+    from kdp_scout.competitor_engine import CompetitorEngine
+
+    engine = CompetitorEngine()
+    try:
+        books = engine.list_books()
+        if not books:
+            if not quiet:
+                console.print('[yellow]No books tracked.[/yellow]')
+            return
+
+        if not quiet:
+            console.print(
+                f'\n[bold cyan]Taking snapshots of {len(books)} tracked book(s)...[/bold cyan]\n'
+            )
+
+        results = []
+        if quiet:
+            results = engine.take_snapshot()
+        else:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn('[progress.description]{task.description}'),
+                BarColumn(),
+                TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                TextColumn('({task.completed}/{task.total})'),
+                console=console,
+            ) as progress:
+                task = progress.add_task('Snapshotting...', total=len(books))
+
+                for book in books:
+                    progress.update(task, description=f'Scraping {book["asin"]}...')
+                    book_results = engine.take_snapshot(asin=book['asin'])
+                    results.extend(book_results)
+                    progress.advance(task)
+
+        if quiet:
+            return
+
+        # Display results
+        console.print()
+        success_count = sum(1 for r in results if r['success'])
+        fail_count = len(results) - success_count
+
+        for result in results:
+            if result['success']:
+                title = result['title'] or 'Unknown'
+                snapshot = result.get('snapshot', {})
+                changes = result.get('changes', {})
+
+                bsr = snapshot.get('bsr_overall')
+                bsr_str = f'BSR #{bsr:,}' if bsr else 'BSR unknown'
+
+                parts = [f'[green]OK[/green] {title} ({result["asin"]}) - {bsr_str}']
+
+                # Show changes
+                for field, change in changes.items():
+                    old_val = change['old']
+                    new_val = change['new']
+                    direction = change['direction']
+
+                    if direction == 'improved':
+                        color = 'green'
+                        arrow = 'v' if field == 'BSR' else '^'
+                    elif direction == 'declined':
+                        color = 'red'
+                        arrow = '^' if field == 'BSR' else 'v'
+                    else:
+                        color = 'dim'
+                        arrow = '='
+
+                    if isinstance(old_val, float):
+                        parts.append(f'  [{color}]{arrow} {field}: {old_val:.2f} -> {new_val:.2f}[/{color}]')
+                    else:
+                        parts.append(f'  [{color}]{arrow} {field}: {old_val:,} -> {new_val:,}[/{color}]')
+
+                console.print('\n'.join(parts))
+            else:
+                console.print(
+                    f'[red]FAIL[/red] {result.get("title", "Unknown")} '
+                    f'({result["asin"]}): {result.get("error", "Unknown error")}'
+                )
+
+        console.print()
+        summary = f'[bold]Snapshot complete:[/bold] {success_count} succeeded'
+        if fail_count:
+            summary += f', [red]{fail_count} failed[/red]'
+        console.print(summary)
+
+    finally:
+        engine.close()
+
+
+@track.command('compare')
+def track_compare():
+    """Side-by-side comparison of all tracked books."""
+    from kdp_scout.reporting import ReportingEngine
+
+    engine = ReportingEngine()
+    try:
+        engine.competitor_summary()
+    finally:
+        engine.close()
+
+
+# ── Report command group ──────────────────────────────────────────
+
+
+@main.group()
+def report():
+    """Generate analysis reports."""
+    pass
+
+
+@report.command('keywords')
+@click.option('--limit', default=50, help='Maximum keywords to display.')
+def report_keywords(limit):
+    """Show top keywords by autocomplete position.
+
+    Example:
+        kdp-scout report keywords
+        kdp-scout report keywords --limit 100
+    """
+    from kdp_scout.reporting import ReportingEngine
+
+    engine = ReportingEngine()
+    try:
+        engine.keyword_summary(limit=limit)
+    finally:
+        engine.close()
+
+
+@report.command('competitors')
+def report_competitors():
+    """Show competitor comparison report.
+
+    Example:
+        kdp-scout report competitors
+    """
+    from kdp_scout.reporting import ReportingEngine
+
+    engine = ReportingEngine()
+    try:
+        engine.competitor_summary()
+    finally:
+        engine.close()
 
 
 if __name__ == '__main__':
