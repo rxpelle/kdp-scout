@@ -5,7 +5,7 @@ setup(
     version='0.1.0',
     description='Amazon KDP keyword research and competitor analysis tool',
     author='KDP Scout Contributors',
-    url='https://github.com/kdp-scout/kdp-scout',
+    url='https://github.com/rxpelle/kdp-scout',
     license='MIT',
     packages=find_packages(),
     python_requires='>=3.9',
