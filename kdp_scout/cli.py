@@ -1175,5 +1175,13 @@ def discover(asin, top_n):
         engine.close()
 
 
+# -- Phase 5: Automation, Seeds, Cron --------------------------------------
+
+from kdp_scout.cli_automation import automate, seeds, cron
+main.add_command(automate)
+main.add_command(seeds)
+main.add_command(cron)
+
+
 if __name__ == '__main__':
     main()
