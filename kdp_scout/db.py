@@ -805,6 +805,164 @@ class AdsRepository:
         ).fetchall()
 
 
+class KeywordRankingRepository:
+    """Data access for keyword_rankings table.
+
+    Stores keyword-to-book rank positions from reverse ASIN probing
+    or DataForSEO lookups.
+    """
+
+    def __init__(self, conn=None):
+        self._conn = conn or get_connection()
+        self._owns_conn = conn is None
+
+    def close(self):
+        if self._owns_conn:
+            self._conn.close()
+
+    def add_ranking(self, keyword_id, book_id, position, source,
+                    snapshot_date=None):
+        """Add or update a keyword ranking for a book.
+
+        Args:
+            keyword_id: ID of the keyword.
+            book_id: ID of the book.
+            position: 1-based rank position in search results.
+            source: How the ranking was obtained ('probe' or 'dataforseo').
+            snapshot_date: Date string (YYYY-MM-DD). Defaults to today.
+
+        Returns:
+            The ranking row ID.
+        """
+        if snapshot_date is None:
+            snapshot_date = date.today().isoformat()
+
+        existing = self._conn.execute(
+            'SELECT id FROM keyword_rankings '
+            'WHERE keyword_id = ? AND book_id = ? AND snapshot_date = ?',
+            (keyword_id, book_id, snapshot_date),
+        ).fetchone()
+
+        if existing:
+            self._conn.execute(
+                'UPDATE keyword_rankings SET rank_position = ?, source = ? '
+                'WHERE id = ?',
+                (position, source, existing['id']),
+            )
+            self._conn.commit()
+            return existing['id']
+
+        cursor = self._conn.execute(
+            'INSERT INTO keyword_rankings '
+            '(keyword_id, book_id, snapshot_date, rank_position, source) '
+            'VALUES (?, ?, ?, ?, ?)',
+            (keyword_id, book_id, snapshot_date, position, source),
+        )
+        self._conn.commit()
+        return cursor.lastrowid
+
+    def get_rankings_for_book(self, book_id, snapshot_date=None):
+        """Get all keyword rankings for a book.
+
+        Args:
+            book_id: ID of the book.
+            snapshot_date: Optional date filter. If None, returns latest.
+
+        Returns:
+            List of sqlite3.Row objects with keyword and ranking data.
+        """
+        if snapshot_date:
+            query = """
+                SELECT kr.*, k.keyword
+                FROM keyword_rankings kr
+                JOIN keywords k ON kr.keyword_id = k.id
+                WHERE kr.book_id = ? AND kr.snapshot_date = ?
+                ORDER BY kr.rank_position ASC
+            """
+            return self._conn.execute(query, (book_id, snapshot_date)).fetchall()
+
+        query = """
+            SELECT kr.*, k.keyword
+            FROM keyword_rankings kr
+            JOIN keywords k ON kr.keyword_id = k.id
+            WHERE kr.book_id = ?
+              AND kr.snapshot_date = (
+                  SELECT MAX(snapshot_date) FROM keyword_rankings
+                  WHERE book_id = ?
+              )
+            ORDER BY kr.rank_position ASC
+        """
+        return self._conn.execute(query, (book_id, book_id)).fetchall()
+
+    def get_rankings_for_keyword(self, keyword_id):
+        """Get all book rankings for a keyword.
+
+        Args:
+            keyword_id: ID of the keyword.
+
+        Returns:
+            List of sqlite3.Row objects with book and ranking data.
+        """
+        query = """
+            SELECT kr.*, b.asin, b.title, b.is_own
+            FROM keyword_rankings kr
+            JOIN books b ON kr.book_id = b.id
+            WHERE kr.keyword_id = ?
+            ORDER BY kr.rank_position ASC
+        """
+        return self._conn.execute(query, (keyword_id,)).fetchall()
+
+    def get_gaps(self, own_book_ids, competitor_book_ids):
+        """Find keyword gaps: keywords competitors rank for but own books don't.
+
+        Args:
+            own_book_ids: List of IDs for the user's own books.
+            competitor_book_ids: List of IDs for competitor books.
+
+        Returns:
+            List of sqlite3.Row objects with keyword info and competitor
+            ranking details.
+        """
+        if not own_book_ids or not competitor_book_ids:
+            return []
+
+        own_placeholders = ','.join('?' * len(own_book_ids))
+        comp_placeholders = ','.join('?' * len(competitor_book_ids))
+
+        query = f"""
+            SELECT k.id as keyword_id, k.keyword, k.score,
+                   cr.rank_position as competitor_position,
+                   b.title as competitor_title, b.asin as competitor_asin,
+                   cr.snapshot_date
+            FROM keyword_rankings cr
+            JOIN keywords k ON cr.keyword_id = k.id
+            JOIN books b ON cr.book_id = b.id
+            WHERE cr.book_id IN ({comp_placeholders})
+              AND cr.keyword_id NOT IN (
+                  SELECT keyword_id FROM keyword_rankings
+                  WHERE book_id IN ({own_placeholders})
+              )
+            ORDER BY cr.rank_position ASC
+        """
+        params = list(competitor_book_ids) + list(own_book_ids)
+        return self._conn.execute(query, params).fetchall()
+
+    def get_ranking_count_for_book(self, book_id):
+        """Get the number of keyword rankings stored for a book.
+
+        Args:
+            book_id: ID of the book.
+
+        Returns:
+            Integer count.
+        """
+        row = self._conn.execute(
+            'SELECT COUNT(*) as cnt FROM keyword_rankings WHERE book_id = ?',
+            (book_id,),
+        ).fetchone()
+        return row['cnt']
+
+
 class CategoryRepository:
     """Data access for categories table.
 

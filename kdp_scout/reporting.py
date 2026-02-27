@@ -16,7 +16,8 @@ from rich.table import Table
 from rich.panel import Panel
 
 from kdp_scout.db import (
-    KeywordRepository, BookRepository, AdsRepository, init_db,
+    KeywordRepository, BookRepository, AdsRepository,
+    KeywordRankingRepository, init_db,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,12 +46,14 @@ class ReportingEngine:
         self._kw_repo = KeywordRepository()
         self._book_repo = BookRepository()
         self._ads_repo = AdsRepository()
+        self._ranking_repo = KeywordRankingRepository()
 
     def close(self):
         """Close database connections."""
         self._kw_repo.close()
         self._book_repo.close()
         self._ads_repo.close()
+        self._ranking_repo.close()
 
     # ── Keyword Reports ───────────────────────────────────────────
 
@@ -235,68 +238,223 @@ class ReportingEngine:
     # ── Keyword Gap Analysis ──────────────────────────────────────
 
     def keyword_gaps(self, competitor_asin=None):
-        """Show keyword gap opportunities.
+        """Show keyword gap opportunities from three sources.
 
-        Basic version based on ads data: keywords where you get impressions
-        but no sales, indicating potential optimization opportunities.
+        Enhanced gap analysis:
+        1. Keywords where competitors rank but your books don't (from reverse ASIN data)
+        2. Keywords where competitors rank higher than you (position comparison)
+        3. Keywords from ads with high impressions but no orders (opportunity)
 
         Args:
             competitor_asin: Optional ASIN to focus gap analysis on.
         """
-        if self._ads_repo.get_search_term_count() == 0:
+        has_ranking_data = False
+        has_ads_data = self._ads_repo.get_search_term_count() > 0
+
+        # Check for ranking data from reverse ASIN
+        books = self._book_repo.get_all_books()
+        own_books = [b for b in books if b['is_own']]
+        competitor_books = [b for b in books if not b['is_own']]
+
+        own_ids = [b['id'] for b in own_books]
+        comp_ids = [b['id'] for b in competitor_books]
+
+        if competitor_asin:
+            comp_book = self._book_repo.find_by_asin(competitor_asin)
+            if comp_book:
+                comp_ids = [comp_book['id']]
+
+        # Section 1: Competitor keywords you don't rank for
+        if own_ids and comp_ids:
+            gaps = self._ranking_repo.get_gaps(own_ids, comp_ids)
+            if gaps:
+                has_ranking_data = True
+                table = Table(
+                    title='Competitor Keywords You Don\'t Rank For',
+                    show_lines=False,
+                    expand=True,
+                )
+                table.add_column('#', style='dim', width=4, justify='right')
+                table.add_column('Keyword', style='bold', ratio=3)
+                table.add_column('Competitor', ratio=2)
+                table.add_column('Their Pos', justify='center', width=10)
+                table.add_column('Score', justify='right', width=7)
+                table.add_column('Priority', width=12)
+
+                for i, row in enumerate(gaps[:50], 1):
+                    score = row['score'] or 0
+                    position = row['competitor_position'] or 0
+
+                    # Prioritize: high score + good competitor position
+                    if position <= 5 and score >= 50:
+                        priority = '[bold red]HIGH[/bold red]'
+                    elif position <= 10 or score >= 25:
+                        priority = '[yellow]MEDIUM[/yellow]'
+                    else:
+                        priority = '[dim]LOW[/dim]'
+
+                    comp_title = row['competitor_title'] or row['competitor_asin']
+                    if len(comp_title) > 30:
+                        comp_title = comp_title[:27] + '...'
+
+                    table.add_row(
+                        str(i),
+                        row['keyword'],
+                        comp_title,
+                        str(position) if position else '-',
+                        f'{score:.0f}',
+                        priority,
+                    )
+
+                console.print(table)
+                console.print(
+                    f'\n[dim]{len(gaps)} keyword gaps from competitor rankings[/dim]\n'
+                )
+
+        # Section 2: Keywords where competitors rank higher
+        if own_ids and comp_ids:
+            position_gaps = self._find_position_gaps(own_ids, comp_ids)
+            if position_gaps:
+                has_ranking_data = True
+                table = Table(
+                    title='Keywords Where Competitors Rank Higher',
+                    show_lines=False,
+                    expand=True,
+                )
+                table.add_column('#', style='dim', width=4, justify='right')
+                table.add_column('Keyword', style='bold', ratio=3)
+                table.add_column('Your Pos', justify='center', width=9)
+                table.add_column('Their Pos', justify='center', width=10)
+                table.add_column('Competitor', ratio=2)
+                table.add_column('Gap', justify='center', width=6)
+
+                for i, gap in enumerate(position_gaps[:30], 1):
+                    diff = gap['your_position'] - gap['their_position']
+                    if diff >= 5:
+                        gap_str = f'[red]-{diff}[/red]'
+                    elif diff >= 2:
+                        gap_str = f'[yellow]-{diff}[/yellow]'
+                    else:
+                        gap_str = f'[dim]-{diff}[/dim]'
+
+                    comp_title = gap['competitor_title'] or gap['competitor_asin']
+                    if len(comp_title) > 30:
+                        comp_title = comp_title[:27] + '...'
+
+                    table.add_row(
+                        str(i),
+                        gap['keyword'],
+                        str(gap['your_position']),
+                        str(gap['their_position']),
+                        comp_title,
+                        gap_str,
+                    )
+
+                console.print(table)
+                console.print(
+                    f'\n[dim]{len(position_gaps)} keywords where competitors '
+                    f'outrank you[/dim]\n'
+                )
+
+        # Section 3: Ads opportunity keywords (impressions but no orders)
+        if has_ads_data:
+            opportunities = self._ads_repo.get_opportunity_keywords()
+
+            if opportunities:
+                table = Table(
+                    title='Ads Keywords: Impressions but No Orders',
+                    show_lines=False,
+                    expand=True,
+                )
+                table.add_column('#', style='dim', width=4, justify='right')
+                table.add_column('Search Term', style='bold', ratio=3)
+                table.add_column('Impressions', justify='right', width=12)
+                table.add_column('Clicks', justify='right', width=8)
+                table.add_column('Spend', justify='right', width=10)
+                table.add_column('Action', width=20)
+
+                for i, row in enumerate(opportunities[:50], 1):
+                    impressions = _fmt_number(row['total_impressions'])
+                    clicks = _fmt_number(row['total_clicks'])
+                    spend = _fmt_price(row['total_spend'])
+
+                    total_clicks = row['total_clicks'] or 0
+                    total_impressions = row['total_impressions'] or 0
+
+                    if total_clicks > 5 and total_impressions > 100:
+                        action = '[red]Review listing[/red]'
+                    elif total_impressions > 500 and total_clicks == 0:
+                        action = '[yellow]Improve ad copy[/yellow]'
+                    elif total_impressions < 50:
+                        action = '[dim]Low data[/dim]'
+                    else:
+                        action = '[yellow]Monitor[/yellow]'
+
+                    table.add_row(str(i), row['search_term'], impressions,
+                                  clicks, spend, action)
+
+                console.print(table)
+                console.print(
+                    f'\n[dim]{len(opportunities)} opportunity keywords from ads[/dim]\n'
+                )
+
+        # If no data at all
+        if not has_ranking_data and not has_ads_data:
             console.print(
-                '[yellow]No ads data imported yet. '
-                'Use "kdp-scout import-ads <file>" to import your '
-                'Amazon Ads search term report first.[/yellow]'
+                '[yellow]No gap analysis data available.\n'
+                'Run "kdp-scout reverse <ASIN>" to get ranking data, or\n'
+                'use "kdp-scout import-ads <file>" to import ads data.[/yellow]'
             )
-            return
 
-        opportunities = self._ads_repo.get_opportunity_keywords()
+    def _find_position_gaps(self, own_book_ids, competitor_book_ids):
+        """Find keywords where competitors rank higher than own books.
 
-        if not opportunities:
-            console.print(
-                '[green]No keyword gaps found. All your keywords with '
-                'impressions are converting![/green]'
-            )
-            return
+        Args:
+            own_book_ids: List of own book IDs.
+            competitor_book_ids: List of competitor book IDs.
 
-        table = Table(
-            title='Keyword Gaps (Impressions but No Orders)',
-            show_lines=False,
-            expand=True,
-        )
-        table.add_column('#', style='dim', width=4, justify='right')
-        table.add_column('Search Term', style='bold', ratio=3)
-        table.add_column('Impressions', justify='right', width=12)
-        table.add_column('Clicks', justify='right', width=8)
-        table.add_column('Spend', justify='right', width=10)
-        table.add_column('Action', width=20)
+        Returns:
+            List of dicts with position comparison data,
+            sorted by gap size descending.
+        """
+        from kdp_scout.db import get_connection
 
-        for i, row in enumerate(opportunities[:50], 1):
-            impressions = _fmt_number(row['total_impressions'])
-            clicks = _fmt_number(row['total_clicks'])
-            spend = _fmt_price(row['total_spend'])
+        conn = get_connection()
+        try:
+            own_placeholders = ','.join('?' * len(own_book_ids))
+            comp_placeholders = ','.join('?' * len(competitor_book_ids))
 
-            # Suggest action based on data
-            total_clicks = row['total_clicks'] or 0
-            total_impressions = row['total_impressions'] or 0
+            query = f"""
+                SELECT k.keyword,
+                       own_kr.rank_position as your_position,
+                       comp_kr.rank_position as their_position,
+                       b.title as competitor_title,
+                       b.asin as competitor_asin
+                FROM keyword_rankings own_kr
+                JOIN keyword_rankings comp_kr
+                    ON own_kr.keyword_id = comp_kr.keyword_id
+                JOIN keywords k ON own_kr.keyword_id = k.id
+                JOIN books b ON comp_kr.book_id = b.id
+                WHERE own_kr.book_id IN ({own_placeholders})
+                  AND comp_kr.book_id IN ({comp_placeholders})
+                  AND comp_kr.rank_position < own_kr.rank_position
+                ORDER BY (own_kr.rank_position - comp_kr.rank_position) DESC
+            """
+            params = list(own_book_ids) + list(competitor_book_ids)
+            rows = conn.execute(query, params).fetchall()
 
-            if total_clicks > 5 and total_impressions > 100:
-                action = '[red]Review listing[/red]'
-            elif total_impressions > 500 and total_clicks == 0:
-                action = '[yellow]Improve ad copy[/yellow]'
-            elif total_impressions < 50:
-                action = '[dim]Low data[/dim]'
-            else:
-                action = '[yellow]Monitor[/yellow]'
-
-            table.add_row(str(i), row['search_term'], impressions,
-                          clicks, spend, action)
-
-        console.print(table)
-        console.print(
-            f'\n[dim]{len(opportunities)} opportunity keywords found[/dim]'
-        )
+            return [
+                {
+                    'keyword': row['keyword'],
+                    'your_position': row['your_position'],
+                    'their_position': row['their_position'],
+                    'competitor_title': row['competitor_title'],
+                    'competitor_asin': row['competitor_asin'],
+                }
+                for row in rows
+            ]
+        finally:
+            conn.close()
 
     # ── Ads Performance Report ────────────────────────────────────
 

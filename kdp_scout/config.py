@@ -21,6 +21,7 @@ class Config:
     DB_PATH = os.getenv('DB_PATH', 'data/kdp_scout.db')
 
     # API Keys
+    DATAFORSEO_LOGIN = os.getenv('DATAFORSEO_LOGIN', '')
     DATAFORSEO_API_KEY = os.getenv('DATAFORSEO_API_KEY', '')
 
     # Proxy
@@ -29,7 +30,8 @@ class Config:
     # Rate limits (seconds between requests)
     AUTOCOMPLETE_RATE_LIMIT = float(os.getenv('AUTOCOMPLETE_RATE_LIMIT', '0.5'))
     PRODUCT_SCRAPE_RATE_LIMIT = float(os.getenv('PRODUCT_SCRAPE_RATE_LIMIT', '2.0'))
-    DATAFORSEO_RATE_LIMIT = 1.0  # 1 request per second for API
+    SEARCH_PROBE_RATE_LIMIT = float(os.getenv('SEARCH_PROBE_RATE_LIMIT', '2.0'))
+    DATAFORSEO_RATE_LIMIT = float(os.getenv('DATAFORSEO_RATE_LIMIT', '0.5'))
 
     # Logging
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
@@ -75,10 +77,13 @@ class Config:
         """Return configuration as a dictionary for display."""
         return {
             'DB_PATH': cls.get_db_path(),
+            'DATAFORSEO_LOGIN': cls.DATAFORSEO_LOGIN or '(not set)',
             'DATAFORSEO_API_KEY': '***' if cls.DATAFORSEO_API_KEY else '(not set)',
             'PROXY_URL': cls.PROXY_URL or '(not set)',
             'AUTOCOMPLETE_RATE_LIMIT': f'{cls.AUTOCOMPLETE_RATE_LIMIT}s',
             'PRODUCT_SCRAPE_RATE_LIMIT': f'{cls.PRODUCT_SCRAPE_RATE_LIMIT}s',
+            'SEARCH_PROBE_RATE_LIMIT': f'{cls.SEARCH_PROBE_RATE_LIMIT}s',
+            'DATAFORSEO_RATE_LIMIT': f'{cls.DATAFORSEO_RATE_LIMIT}s',
             'LOG_LEVEL': cls.LOG_LEVEL,
             'USER_AGENTS': f'{len(cls.USER_AGENTS)} configured',
         }

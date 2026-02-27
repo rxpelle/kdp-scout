@@ -12,7 +12,9 @@ import logging
 import click
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
+from rich.progress import (
+    Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn,
+)
 from rich.panel import Panel
 
 from kdp_scout import __version__
@@ -810,6 +812,365 @@ def export_backend():
     engine = ReportingEngine()
     try:
         engine.export_backend_keywords()
+    finally:
+        engine.close()
+
+
+# -- Reverse ASIN command --------------------------------------------------
+
+
+@main.command('reverse')
+@click.argument('asin')
+@click.option(
+    '--method',
+    type=click.Choice(['probe', 'dataforseo', 'auto']),
+    default='auto',
+    help='Lookup method: probe (free), dataforseo (paid), or auto.',
+)
+@click.option(
+    '--top',
+    'top_n',
+    type=int,
+    default=None,
+    help='Only check top N keywords by score (speeds up probing).',
+)
+def reverse(asin, method, top_n):
+    """Reverse ASIN lookup: find keywords a book ranks for.
+
+    ASIN is the Amazon ASIN to look up (e.g., B0GMRN61MG).
+
+    The 'probe' method searches Amazon for each keyword in your database
+    and checks if the ASIN appears in results (free, but slow ~2s/keyword).
+
+    The 'dataforseo' method uses the DataForSEO API (fast, but costs ~$0.01).
+
+    Examples:
+        kdp-scout reverse B0GMRN61MG
+        kdp-scout reverse B0GMRN61MG --method probe --top 50
+        kdp-scout reverse B003K16PJW --method dataforseo
+    """
+    from kdp_scout.keyword_engine import ReverseASIN
+
+    engine = ReverseASIN()
+    try:
+        # Determine method display
+        if method == 'auto':
+            from kdp_scout.collectors.dataforseo import DataForSEOCollector
+            dfs = DataForSEOCollector()
+            actual_method = 'dataforseo' if dfs.is_available() else 'probe'
+        else:
+            actual_method = method
+
+        panel_lines = [
+            f'[bold]ASIN:[/bold] {asin.upper()}',
+            f'[bold]Method:[/bold] {actual_method}',
+        ]
+        if top_n:
+            panel_lines.append(f'[bold]Keywords to check:[/bold] {top_n}')
+
+        if actual_method == 'probe':
+            from kdp_scout.db import KeywordRepository, init_db
+            init_db()
+            repo = KeywordRepository()
+            try:
+                total_kws = len(repo.get_all_keywords(active_only=True))
+            finally:
+                repo.close()
+            check_count = min(top_n, total_kws) if top_n else total_kws
+            est_seconds = check_count * 2.5  # ~2.5s per keyword with rate limiting
+            est_minutes = est_seconds / 60
+            panel_lines.append(
+                f'[bold]Keywords in DB:[/bold] {total_kws}'
+            )
+            panel_lines.append(
+                f'[bold]Estimated time:[/bold] ~{est_minutes:.1f} minutes '
+                f'({check_count} keywords x 2.5s)'
+            )
+
+        console.print(
+            Panel(
+                '\n'.join(panel_lines),
+                title='[bold cyan]Reverse ASIN Lookup[/bold cyan]',
+                border_style='cyan',
+            )
+        )
+        console.print()
+
+        results = []
+
+        if actual_method == 'probe':
+            with Progress(
+                SpinnerColumn(),
+                TextColumn('[progress.description]{task.description}'),
+                BarColumn(),
+                TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                TextColumn('({task.completed}/{task.total})'),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task(
+                    'Probing...', total=check_count
+                )
+
+                found_count = [0]
+
+                def on_progress(completed, total, found, keyword):
+                    found_count[0] = found
+                    short_kw = keyword[:30] + '...' if len(keyword) > 30 else keyword
+                    progress.update(
+                        task,
+                        completed=completed,
+                        total=total,
+                        description=f'Probing: "{short_kw}" (found: {found})',
+                    )
+
+                try:
+                    results = engine.reverse_asin_probe(
+                        asin, top_n=top_n, method='probe',
+                        progress_callback=on_progress,
+                    )
+                except KeyboardInterrupt:
+                    console.print(
+                        '\n[yellow]Interrupted. Partial results saved.[/yellow]'
+                    )
+        else:
+            with console.status('[bold cyan]Querying DataForSEO API...'):
+                results = engine.reverse_asin_probe(
+                    asin, top_n=top_n, method='dataforseo',
+                )
+
+        # Display results
+        console.print()
+
+        if not results:
+            console.print(
+                f'[yellow]No rankings found for {asin.upper()}.[/yellow]\n'
+                '[dim]The book may not appear in the first page of results '
+                'for any of the keywords in your database.[/dim]'
+            )
+            return
+
+        # Sort by position
+        results.sort(key=lambda x: x['position'])
+
+        table = Table(
+            title=f'Keywords Ranking for {asin.upper()}',
+            show_lines=False,
+        )
+        table.add_column('#', style='dim', width=4, justify='right')
+        table.add_column('Keyword', style='bold', ratio=3)
+        table.add_column('Position', justify='center', width=10)
+        table.add_column('Source', justify='center', width=12)
+        table.add_column('Date', width=12)
+
+        if any('search_volume' in r for r in results):
+            table.add_column('Search Vol', justify='right', width=11)
+
+        for i, result in enumerate(results, 1):
+            pos = result['position']
+            if pos <= 3:
+                pos_str = f'[bold green]{pos}[/bold green]'
+            elif pos <= 8:
+                pos_str = f'[green]{pos}[/green]'
+            elif pos <= 12:
+                pos_str = f'[yellow]{pos}[/yellow]'
+            else:
+                pos_str = str(pos)
+
+            row = [
+                str(i),
+                result['keyword'],
+                pos_str,
+                result['source'],
+                result['snapshot_date'],
+            ]
+
+            if any('search_volume' in r for r in results):
+                vol = result.get('search_volume', 0)
+                row.append(f'{vol:,}' if vol else '-')
+
+            table.add_row(*row)
+
+        console.print(table)
+
+        # Summary
+        console.print(
+            f'\n[bold green]{len(results)} keywords found[/bold green] '
+            f'for {asin.upper()}'
+        )
+
+        if actual_method == 'dataforseo':
+            from kdp_scout.collectors.dataforseo import DataForSEOCollector
+            dfs = DataForSEOCollector()
+            console.print(
+                f'[dim]Estimated DataForSEO spend: '
+                f'${dfs.get_estimated_spend():.4f}[/dim]'
+            )
+
+        console.print(
+            f'[dim]Results stored in database. '
+            f'Run "kdp-scout report gaps" for gap analysis.[/dim]'
+        )
+
+    except Exception as e:
+        console.print(f'[red]Error during reverse ASIN lookup: {e}[/red]')
+        logging.getLogger(__name__).exception('Reverse ASIN failed')
+    finally:
+        engine.close()
+
+
+# -- Discover command ------------------------------------------------------
+
+
+@main.command('discover')
+@click.argument('asin')
+@click.option(
+    '--top',
+    'top_n',
+    type=int,
+    default=200,
+    help='Check top N keywords for reverse ASIN (default 200).',
+)
+def discover(asin, top_n):
+    """Discover keywords and competitors for a book.
+
+    Convenience command that:
+    1. Reverse ASIN on the given book
+    2. If DataForSEO is available, find product competitors
+    3. Show keyword overlap and unique keywords per book
+
+    ASIN is the Amazon ASIN to discover (e.g., B0GMRN61MG).
+
+    Examples:
+        kdp-scout discover B0GMRN61MG
+        kdp-scout discover B0GMRN61MG --top 100
+    """
+    from kdp_scout.keyword_engine import ReverseASIN
+    from kdp_scout.collectors.dataforseo import DataForSEOCollector
+
+    engine = ReverseASIN()
+    dfs = DataForSEOCollector()
+
+    try:
+        console.print(
+            Panel(
+                f'[bold]ASIN:[/bold] {asin.upper()}\n'
+                f'[bold]Top keywords:[/bold] {top_n}\n'
+                f'[bold]DataForSEO:[/bold] '
+                f'{"Available" if dfs.is_available() else "Not configured (using probe)"}',
+                title='[bold cyan]Discovery Mode[/bold cyan]',
+                border_style='cyan',
+            )
+        )
+        console.print()
+
+        # Step 1: Reverse ASIN on the target book
+        console.print('[bold]Step 1:[/bold] Reverse ASIN lookup...\n')
+
+        method = 'dataforseo' if dfs.is_available() else 'probe'
+
+        if method == 'probe':
+            with Progress(
+                SpinnerColumn(),
+                TextColumn('[progress.description]{task.description}'),
+                BarColumn(),
+                TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                TextColumn('({task.completed}/{task.total})'),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task('Probing...', total=top_n)
+
+                def on_progress(completed, total, found, keyword):
+                    short_kw = keyword[:30] + '...' if len(keyword) > 30 else keyword
+                    progress.update(
+                        task,
+                        completed=completed,
+                        total=total,
+                        description=f'Probing: "{short_kw}" (found: {found})',
+                    )
+
+                main_results = engine.reverse_asin_probe(
+                    asin, top_n=top_n, method='probe',
+                    progress_callback=on_progress,
+                )
+        else:
+            with console.status('[bold cyan]Querying DataForSEO...'):
+                main_results = engine.reverse_asin_probe(
+                    asin, top_n=top_n, method='dataforseo',
+                )
+
+        console.print(
+            f'[green]Found {len(main_results)} keywords for {asin.upper()}[/green]\n'
+        )
+
+        # Step 2: Find competitors (DataForSEO only)
+        competitors = []
+        if dfs.is_available():
+            console.print('[bold]Step 2:[/bold] Finding product competitors...\n')
+            with console.status('[bold cyan]Querying DataForSEO for competitors...'):
+                competitors = dfs.product_competitors(asin)
+
+            if competitors:
+                table = Table(
+                    title='Product Competitors',
+                    show_lines=False,
+                )
+                table.add_column('#', style='dim', width=4, justify='right')
+                table.add_column('ASIN', width=12)
+                table.add_column('Title', ratio=3)
+                table.add_column('Common Keywords', justify='right', width=16)
+
+                for i, comp in enumerate(competitors[:10], 1):
+                    title = comp['title'] or 'Unknown'
+                    if len(title) > 50:
+                        title = title[:47] + '...'
+                    table.add_row(
+                        str(i),
+                        comp['asin'],
+                        title,
+                        str(comp['common_keywords']),
+                    )
+
+                console.print(table)
+                console.print()
+            else:
+                console.print('[yellow]No competitors found via API.[/yellow]\n')
+        else:
+            console.print(
+                '[dim]Step 2: Skipped competitor discovery '
+                '(requires DataForSEO API)[/dim]\n'
+            )
+
+        # Summary
+        summary_lines = [
+            f'[bold]Target ASIN:[/bold] {asin.upper()}',
+            f'[bold]Keywords found:[/bold] {len(main_results)}',
+        ]
+        if competitors:
+            summary_lines.append(
+                f'[bold]Competitors found:[/bold] {len(competitors)}'
+            )
+        if dfs.is_available():
+            summary_lines.append(
+                f'[bold]Estimated API spend:[/bold] ${dfs.get_estimated_spend():.4f}'
+            )
+
+        console.print(
+            Panel(
+                '\n'.join(summary_lines),
+                title='[bold green]Discovery Complete[/bold green]',
+                border_style='green',
+            )
+        )
+
+        console.print(
+            '\n[dim]Run "kdp-scout report gaps" to see keyword gap analysis.[/dim]'
+        )
+
+    except Exception as e:
+        console.print(f'[red]Error during discovery: {e}[/red]')
+        logging.getLogger(__name__).exception('Discovery failed')
     finally:
         engine.close()
 
