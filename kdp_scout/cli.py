@@ -219,7 +219,7 @@ def track_add(asin, name, own):
 
     Examples:
         kdp-scout track add B003K16PJW --name "The Name of the Rose"
-        kdp-scout track add B0GMRN61MG --own --name "The Aethelred Cipher"
+        kdp-scout track add B08N5WRWNW --own --name "My Book Title"
     """
     from kdp_scout.competitor_engine import CompetitorEngine
     from kdp_scout.collectors.product_scraper import CaptchaDetected
@@ -539,7 +539,7 @@ def import_ads(filepath, campaign):
 
     Examples:
         kdp-scout import-ads search-terms-report.csv
-        kdp-scout import-ads report.csv --campaign "Aethelred"
+        kdp-scout import-ads report.csv --campaign "My Campaign"
     """
     from kdp_scout.collectors.ads_importer import AdsImporter
 
@@ -837,7 +837,7 @@ def export_backend():
 def reverse(asin, method, top_n):
     """Reverse ASIN lookup: find keywords a book ranks for.
 
-    ASIN is the Amazon ASIN to look up (e.g., B0GMRN61MG).
+    ASIN is the Amazon ASIN to look up (e.g., B003K16PJW).
 
     The 'probe' method searches Amazon for each keyword in your database
     and checks if the ASIN appears in results (free, but slow ~2s/keyword).
@@ -845,9 +845,9 @@ def reverse(asin, method, top_n):
     The 'dataforseo' method uses the DataForSEO API (fast, but costs ~$0.01).
 
     Examples:
-        kdp-scout reverse B0GMRN61MG
-        kdp-scout reverse B0GMRN61MG --method probe --top 50
-        kdp-scout reverse B003K16PJW --method dataforseo
+        kdp-scout reverse B003K16PJW
+        kdp-scout reverse B003K16PJW --method probe --top 50
+        kdp-scout reverse B08N5WRWNW --method dataforseo
     """
     from kdp_scout.keyword_engine import ReverseASIN
 
@@ -1039,11 +1039,11 @@ def discover(asin, top_n):
     2. If DataForSEO is available, find product competitors
     3. Show keyword overlap and unique keywords per book
 
-    ASIN is the Amazon ASIN to discover (e.g., B0GMRN61MG).
+    ASIN is the Amazon ASIN to discover (e.g., B003K16PJW).
 
     Examples:
-        kdp-scout discover B0GMRN61MG
-        kdp-scout discover B0GMRN61MG --top 100
+        kdp-scout discover B003K16PJW
+        kdp-scout discover B003K16PJW --top 100
     """
     from kdp_scout.keyword_engine import ReverseASIN
     from kdp_scout.collectors.dataforseo import DataForSEOCollector

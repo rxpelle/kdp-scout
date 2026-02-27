@@ -2,7 +2,7 @@
 
 # ZSH completion for kdp-scout CLI
 # Source this file in your .zshrc:
-#   source ~/Documents/antigravity/kdp-scout/completions/kdp-scout.zsh
+#   source /path/to/kdp-scout/completions/kdp-scout.zsh
 
 _kdp_scout() {
     local -a commands

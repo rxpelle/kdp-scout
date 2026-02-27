@@ -7,7 +7,8 @@ Built for self-published authors who want data-driven keyword targeting without 
 ## Installation
 
 ```bash
-cd ~/Documents/antigravity/kdp-scout
+git clone https://github.com/kdp-scout/kdp-scout.git
+cd kdp-scout
 pip install -e .
 kdp-scout config init
 ```
@@ -28,7 +29,7 @@ Five commands to get productive:
 kdp-scout mine "historical fiction"
 
 # 2. Track your book and competitors
-kdp-scout track add B0GMRN61MG --own --name "The Aethelred Cipher"
+kdp-scout track add B08N5WRWNW --own --name "My Book Title"
 kdp-scout track add B003K16PJW --name "The Name of the Rose"
 
 # 3. Import your Amazon Ads data (if running ads)
@@ -63,7 +64,7 @@ kdp-scout mine "romance" --department books
 kdp-scout track add B003K16PJW --name "The Name of the Rose"
 
 # Add your own book (highlighted in reports)
-kdp-scout track add B0GMRN61MG --own --name "The Aethelred Cipher"
+kdp-scout track add B08N5WRWNW --own --name "My Book Title"
 
 # List all tracked books with latest data
 kdp-scout track list
@@ -82,7 +83,7 @@ kdp-scout track remove B003K16PJW
 kdp-scout import-ads search-terms-report.csv
 
 # Filter to specific campaign
-kdp-scout import-ads report.csv --campaign "Aethelred"
+kdp-scout import-ads report.csv --campaign "My Campaign"
 ```
 
 ### Keyword Scoring
@@ -317,7 +318,7 @@ kdp-scout track add B00CW0OHR2 --name "The Pillars of the Earth"
 kdp-scout track add B007OZKFQA --name "The Historian"
 
 # Add your own book
-kdp-scout track add B0GMRN61MG --own --name "The Aethelred Cipher"
+kdp-scout track add B08N5WRWNW --own --name "My Book Title"
 
 # Compare everyone
 kdp-scout report competitors
@@ -351,7 +352,30 @@ kdp-scout export ads --min-score 25 > optimized-keywords.csv
 For zsh tab completion, add to your `~/.zshrc`:
 
 ```bash
-source ~/Documents/antigravity/kdp-scout/completions/kdp-scout.zsh
+# Adjust the path to where you cloned kdp-scout
+source /path/to/kdp-scout/completions/kdp-scout.zsh
 ```
 
 Then restart your shell or run `source ~/.zshrc`.
+
+## Legal Disclaimer
+
+This tool interacts with Amazon's public-facing autocomplete API and product pages for research purposes. **You are solely responsible for ensuring your use complies with Amazon's Terms of Service.**
+
+Specifically:
+- **Autocomplete mining** uses the same public API that powers Amazon's search bar suggestions. Use reasonable rate limits (the defaults are conservative).
+- **Product page scraping** fetches publicly available book data (BSR, price, reviews). Respect rate limits to avoid being blocked.
+- **Amazon Ads import** reads CSV files you export from your own Amazon Ads account. No Amazon systems are accessed.
+- **DataForSEO integration** (optional) uses a licensed third-party API and does not scrape Amazon directly.
+
+The authors of this software make no guarantees about continued access to Amazon's APIs or the accuracy of scraped data. Amazon may change their systems at any time.
+
+**This tool is provided for educational and personal research purposes. Use responsibly and at your own risk.**
+
+## Contributing
+
+Contributions are welcome! Please open an issue or pull request on GitHub.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.

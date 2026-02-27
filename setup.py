@@ -4,7 +4,9 @@ setup(
     name='kdp-scout',
     version='0.1.0',
     description='Amazon KDP keyword research and competitor analysis tool',
-    author='Randy Pellegrini',
+    author='KDP Scout Contributors',
+    url='https://github.com/kdp-scout/kdp-scout',
+    license='MIT',
     packages=find_packages(),
     python_requires='>=3.9',
     install_requires=[

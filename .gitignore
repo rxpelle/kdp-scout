@@ -1,8 +1,9 @@
 # Environment
 .env
 
-# Database
-data/
+# Database and cached data (keep the directory via .gitkeep)
+data/*
+!data/.gitkeep
 
 # Python
 __pycache__/
