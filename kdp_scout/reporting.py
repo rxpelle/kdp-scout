@@ -86,16 +86,17 @@ class ReportingEngine:
         table = Table(
             title='Top Keywords (by Score)',
             show_lines=False,
+            expand=True,
         )
-        table.add_column('#', style='dim', width=4, justify='right')
-        table.add_column('Keyword', style='bold', min_width=20, no_wrap=False)
-        table.add_column('Score', justify='right', width=7,
+        table.add_column('#', style='dim', width=3, justify='right')
+        table.add_column('Keyword', style='bold', ratio=3, no_wrap=False)
+        table.add_column('Score', justify='right', width=5,
                          style='bold cyan')
-        table.add_column('AC Pos', justify='center', width=7)
-        table.add_column('Impressions', justify='right', width=12)
-        table.add_column('Clicks', justify='right', width=8)
-        table.add_column('Orders', justify='right', width=8)
-        table.add_column('Source', justify='center', width=14)
+        table.add_column('Pos', justify='center', width=3)
+        table.add_column('Impr', justify='right', width=6)
+        table.add_column('Clk', justify='right', width=4)
+        table.add_column('Ord', justify='right', width=4)
+        table.add_column('Source', justify='center', width=10)
 
         for i, kw in enumerate(keywords, 1):
             pos = (str(kw['autocomplete_position'])
@@ -482,15 +483,15 @@ class ReportingEngine:
             show_lines=False,
             expand=True,
         )
-        table.add_column('#', style='dim', width=4, justify='right')
-        table.add_column('Search Term', style='bold', ratio=3)
-        table.add_column('Impressions', justify='right', width=12)
-        table.add_column('Clicks', justify='right', width=8)
-        table.add_column('CTR', justify='right', width=7)
-        table.add_column('Spend', justify='right', width=9)
-        table.add_column('Sales', justify='right', width=9)
-        table.add_column('ACOS', justify='right', width=7)
-        table.add_column('Orders', justify='right', width=8)
+        table.add_column('#', style='dim', width=3, justify='right')
+        table.add_column('Search Term', style='bold', ratio=3, no_wrap=False)
+        table.add_column('Impr', justify='right', width=6)
+        table.add_column('Clk', justify='right', width=4)
+        table.add_column('CTR', justify='right', width=5)
+        table.add_column('Spend', justify='right', width=7)
+        table.add_column('Sales', justify='right', width=7)
+        table.add_column('ACOS', justify='right', width=5)
+        table.add_column('Ord', justify='right', width=4)
 
         total_spend = 0
         total_sales = 0
