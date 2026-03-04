@@ -20,6 +20,8 @@ _kdp_scout() {
         'automate:Run automation tasks (daily/weekly)'
         'seeds:Manage seed keywords for automated re-mining'
         'cron:Set up cron automation'
+        'reverse:Reverse ASIN lookup - find keywords a book ranks for'
+        'discover:Discover keywords and competitors for a book'
         '--help:Show help message'
         '--version:Show version'
     )
@@ -160,6 +162,19 @@ _kdp_scout() {
                     _describe 'seeds command' subcommands
                     ;;
             esac
+            ;;
+        reverse)
+            _arguments \
+                '1:ASIN:' \
+                '--method[Lookup method]:method:(probe dataforseo auto)' \
+                '--top[Only check top N keywords by score]:n:' \
+                '--help[Show help]'
+            ;;
+        discover)
+            _arguments \
+                '1:ASIN:' \
+                '--top[Check top N keywords for reverse ASIN]:n:' \
+                '--help[Show help]'
             ;;
         cron)
             case "${words[3]}" in

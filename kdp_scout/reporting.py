@@ -658,7 +658,6 @@ class ReportingEngine:
             console.print(
                 '[yellow]No keywords meet the minimum score threshold. '
                 'Run "kdp-scout score" first, or lower --min-score.[/yellow]',
-                file=sys.stderr,
             )
             return ''
 

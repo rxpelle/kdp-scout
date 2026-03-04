@@ -7,7 +7,7 @@ Built for self-published authors who want data-driven keyword targeting without 
 ## Installation
 
 ```bash
-git clone https://github.com/kdp-scout/kdp-scout.git
+git clone https://github.com/rxpelle/kdp-scout.git
 cd kdp-scout
 pip install -e .
 kdp-scout config init
@@ -188,7 +188,8 @@ kdp-scout config init
 All settings are optional. The tool works entirely free without API keys.
 
 ```bash
-# DataForSEO API (optional, for search volume data)
+# DataForSEO API credentials (optional, for enhanced reverse ASIN and search volume)
+DATAFORSEO_LOGIN=
 DATAFORSEO_API_KEY=
 
 # Proxy for web scraping (optional, helps avoid Amazon rate limits)
@@ -197,6 +198,8 @@ PROXY_URL=
 # Rate limits (seconds between requests)
 AUTOCOMPLETE_RATE_LIMIT=0.5
 PRODUCT_SCRAPE_RATE_LIMIT=2.0
+SEARCH_PROBE_RATE_LIMIT=2.0
+DATAFORSEO_RATE_LIMIT=0.5
 
 # Database location
 DB_PATH=data/kdp_scout.db
