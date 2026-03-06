@@ -25,24 +25,60 @@ cp .env.example .env
 Five commands to get productive:
 
 ```bash
-# 1. Mine keywords from Amazon autocomplete
+# 1. Discover trending keywords (no seed needed!)
+kdp-scout trending
+
+# 2. Mine keywords from Amazon autocomplete
 kdp-scout mine "historical fiction"
 
-# 2. Track your book and competitors
+# 3. Track your book and competitors
 kdp-scout track add B08N5WRWNW --own --name "My Book Title"
 kdp-scout track add B003K16PJW --name "The Name of the Rose"
 
-# 3. Import your Amazon Ads data (if running ads)
+# 4. Import your Amazon Ads data (if running ads)
 kdp-scout import-ads search-terms-report.csv
 
-# 4. Score all keywords
+# 5. Score and see your top keywords
 kdp-scout score
-
-# 5. See your top keywords
 kdp-scout report keywords
 ```
 
 ## Command Reference
+
+### Trending Discovery
+
+```bash
+# Discover trending keywords without a seed phrase
+kdp-scout trending
+
+# Use only Amazon bestseller scraping
+kdp-scout trending --source bestsellers
+
+# Use only Google suggest patterns
+kdp-scout trending --source google --limit 100
+
+# Scrape movers & shakers instead of bestsellers
+kdp-scout trending --source bestsellers --list-type kindle_movers
+
+# Don't save to database (preview only)
+kdp-scout trending --no-save
+```
+
+### Category Mining
+
+```bash
+# Auto-mine all 50 built-in KDP categories (romance, thriller, mystery, etc.)
+kdp-scout mine-categories
+
+# Mine deeper (recursive a-z expansion per category)
+kdp-scout mine-categories --depth 2
+
+# Mine specific categories only
+kdp-scout mine-categories --categories "romance,thriller,mystery"
+
+# Test with just the first 3 categories
+kdp-scout mine-categories --limit-categories 3
+```
 
 ### Keyword Mining
 
@@ -265,14 +301,17 @@ kdp_scout/
         bsr_model.py         # BSR-to-sales estimation model
         ads_importer.py      # Amazon Ads CSV importer
         dataforseo.py        # DataForSEO API (optional)
+        trending.py          # Bestseller scraping, Google suggest trending
 ```
 
 **Data flow:**
-1. `mine` queries Amazon autocomplete, stores keywords + positions
-2. `track add` scrapes product pages, stores BSR/price/reviews
-3. `import-ads` reads CSV, cross-references with keyword table
-4. `score` combines all signals into a composite score
-5. `report` / `export` renders scored data for analysis or upload
+1. `trending` discovers keywords from bestsellers + Google suggest
+2. `mine-categories` auto-mines 50 KDP categories via Amazon autocomplete
+3. `mine` queries Amazon autocomplete for a specific seed keyword
+4. `track add` scrapes product pages, stores BSR/price/reviews
+5. `import-ads` reads CSV, cross-references with keyword table
+6. `score` combines all signals into a composite score
+7. `report` / `export` renders scored data for analysis or upload
 
 ## Free Tier vs Paid
 
@@ -290,6 +329,22 @@ kdp_scout/
 The free tier covers everything most authors need. DataForSEO adds actual search volume numbers if you want them (~$0.001 per keyword lookup).
 
 ## Example Workflows
+
+### "What niches are hot right now?"
+
+```bash
+# Discover what's trending on Kindle
+kdp-scout trending
+
+# Mine all major KDP categories automatically
+kdp-scout mine-categories
+
+# Score everything
+kdp-scout score
+
+# See the top keywords across all categories
+kdp-scout report keywords --limit 100
+```
 
 ### "I just published a book. What keywords should I target?"
 
