@@ -4,6 +4,49 @@ Amazon KDP keyword research and competitor analysis tool. Mines keywords from Am
 
 Built for self-published authors who want data-driven keyword targeting without paying $50+/month for Publisher Rocket or similar tools.
 
+## Features
+
+**Keyword Research**
+- Mine long-tail keywords from Amazon autocomplete with a-z expansion
+- Auto-mine all 50 built-in KDP categories (romance, thriller, mystery, etc.)
+- Discover trending keywords from Amazon bestseller lists and Google suggest
+- Discover keywords and competitors for a specific book ASIN
+- Reverse ASIN lookup: find what keywords a book ranks for
+
+**Competitor Tracking**
+- Track competitor books by ASIN (BSR, pricing, ratings, reviews)
+- Flag your own books for comparison
+- Take snapshots over time to monitor trends
+
+**Amazon Ads Integration**
+- Import Sponsored Products search term report CSVs
+- Cross-reference ad data with your keyword database
+- Find keyword gaps (impressions but no orders)
+
+**Scoring**
+- Composite scoring algorithm combining autocomplete position, ad impressions, clicks, orders, and competition signals
+
+**Reports & Export**
+- Top keywords ranked by score
+- Competitor comparison tables
+- Amazon Ads performance reports
+- Export keywords for Amazon Ads campaign import
+- Generate optimized KDP backend keyword slots (7 x 50 bytes)
+- CSV, JSON, and Rich terminal output formats
+
+**Automation**
+- Daily automation (snapshots + re-mine top seeds + score)
+- Weekly automation (full re-mine all seeds + export)
+- Built-in cron job management
+- Seed keyword management for automated re-mining
+
+**Other**
+- Adaptive rate limiting with backoff on 429/503
+- User-agent rotation
+- Proxy support
+- SQLite local storage (no cloud, no accounts, no telemetry)
+- Free tier covers everything; optional DataForSEO for actual search volumes
+
 ## Installation
 
 ```bash
