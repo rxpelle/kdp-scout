@@ -10,6 +10,7 @@ search bar as users type, which directly reflects actual search behavior.
 import json
 import logging
 import string
+import time
 
 import requests
 
@@ -18,6 +19,10 @@ from kdp_scout.rate_limiter import registry as rate_registry
 from kdp_scout.config import Config
 
 logger = logging.getLogger(__name__)
+
+# Adaptive backoff state
+_backoff_until = 0
+_backoff_delay = 0
 
 AUTOCOMPLETE_URL = 'https://completion.amazon.com/api/2017/suggestions'
 
@@ -113,8 +118,17 @@ def _query_autocomplete(prefix, alias):
     Returns:
         List of (keyword, position) tuples.
     """
+    global _backoff_until, _backoff_delay
+
     # Respect rate limiting
     rate_registry.acquire('autocomplete')
+
+    # Adaptive backoff: wait extra if Amazon recently 503'd us
+    now = time.monotonic()
+    if now < _backoff_until:
+        wait = _backoff_until - now
+        logger.info(f'Adaptive backoff: waiting {wait:.1f}s before next request')
+        time.sleep(wait)
 
     params = {
         'mid': 'ATVPDKIKX0DER',
@@ -132,11 +146,23 @@ def _query_autocomplete(prefix, alias):
         return []
 
     try:
+        if response.status_code in (429, 503):
+            _backoff_delay = min(max(_backoff_delay * 2, 5), 60)
+            _backoff_until = time.monotonic() + _backoff_delay
+            logger.warning(
+                f'Amazon {response.status_code} for "{prefix}" — '
+                f'backing off {_backoff_delay}s'
+            )
+            return []
+
         if response.status_code != 200:
             logger.warning(
                 f'Autocomplete returned {response.status_code} for "{prefix}"'
             )
             return []
+
+        # Success — reset backoff
+        _backoff_delay = 0
 
         try:
             data = response.json()

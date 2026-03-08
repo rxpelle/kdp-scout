@@ -28,7 +28,7 @@ class Config:
     PROXY_URL = os.getenv('PROXY_URL', '')
 
     # Rate limits (seconds between requests)
-    AUTOCOMPLETE_RATE_LIMIT = float(os.getenv('AUTOCOMPLETE_RATE_LIMIT', '0.5'))
+    AUTOCOMPLETE_RATE_LIMIT = float(os.getenv('AUTOCOMPLETE_RATE_LIMIT', '1.5'))
     PRODUCT_SCRAPE_RATE_LIMIT = float(os.getenv('PRODUCT_SCRAPE_RATE_LIMIT', '2.0'))
     SEARCH_PROBE_RATE_LIMIT = float(os.getenv('SEARCH_PROBE_RATE_LIMIT', '2.0'))
     DATAFORSEO_RATE_LIMIT = float(os.getenv('DATAFORSEO_RATE_LIMIT', '0.5'))
