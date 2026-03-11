@@ -18,7 +18,7 @@ from rich.progress import (
 from rich.panel import Panel
 
 from kdp_scout import __version__
-from kdp_scout.config import Config, MARKETPLACES
+from kdp_scout.config import Config, MARKETPLACES, get_marketplace
 from kdp_scout.db import init_db
 
 console = Console()
@@ -26,10 +26,23 @@ console = Console()
 # Shared CLI option for marketplace selection
 _marketplace_codes = list(MARKETPLACES.keys())
 
+
+def _validate_marketplace(ctx, param, value):
+    """Resolve and validate the marketplace, including env/config fallback."""
+    try:
+        get_marketplace(value)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--marketplace")
+    return value
+
+
 marketplace_option = click.option(
     '--marketplace', '-m',
     type=click.Choice(_marketplace_codes, case_sensitive=False),
     default=None,
+    callback=_validate_marketplace,
+    expose_value=True,
+    is_eager=False,
     help=f'Amazon marketplace ({", ".join(_marketplace_codes)}). Default: MARKETPLACE env or "us".',
 )
 
@@ -79,13 +92,7 @@ def mine(seed, depth, department, marketplace):
     from kdp_scout.keyword_engine import mine_keywords
     from kdp_scout.config import get_marketplace
 
-    try:
-        mp = get_marketplace(marketplace)
-    except ValueError as exc:
-        raise click.BadParameter(
-            str(exc),
-            param_hint="'--marketplace'",
-        )
+    mp = get_marketplace(marketplace)
     mp_label = marketplace or Config.MARKETPLACE
 
     console.print(
@@ -1360,13 +1367,7 @@ def trending(source, list_type, limit, save, marketplace):
     from kdp_scout.db import KeywordRepository, init_db
     from kdp_scout.config import get_marketplace
 
-    try:
-        mp = get_marketplace(marketplace)
-    except ValueError as exc:
-        raise click.BadParameter(
-            str(exc),
-            param_hint="'--marketplace'",
-        )
+    mp = get_marketplace(marketplace)
     mp_label = marketplace or Config.MARKETPLACE
 
     console.print(

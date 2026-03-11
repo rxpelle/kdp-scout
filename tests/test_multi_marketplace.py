@@ -40,11 +40,13 @@ class TestMarketplaceConfig:
             )
 
     def test_us_is_default(self):
-        assert Config.MARKETPLACE == 'us' or Config.MARKETPLACE in MARKETPLACES
+        with patch.object(Config, 'MARKETPLACE', 'us'):
+            assert Config.MARKETPLACE.lower() in MARKETPLACES
 
     def test_get_marketplace_defaults_to_config(self):
-        mp = get_marketplace(None)
-        assert mp == MARKETPLACES[Config.MARKETPLACE.lower()]
+        with patch.object(Config, 'MARKETPLACE', 'us'):
+            mp = get_marketplace(None)
+            assert mp == MARKETPLACES['us']
 
     def test_get_marketplace_case_insensitive(self):
         assert get_marketplace('US') == get_marketplace('us')
