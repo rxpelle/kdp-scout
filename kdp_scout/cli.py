@@ -18,10 +18,33 @@ from rich.progress import (
 from rich.panel import Panel
 
 from kdp_scout import __version__
-from kdp_scout.config import Config
+from kdp_scout.config import Config, MARKETPLACES, get_marketplace
 from kdp_scout.db import init_db
 
 console = Console()
+
+# Shared CLI option for marketplace selection
+_marketplace_codes = list(MARKETPLACES.keys())
+
+
+def _validate_marketplace(ctx, param, value):
+    """Resolve and validate the marketplace, including env/config fallback."""
+    try:
+        get_marketplace(value)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--marketplace")
+    return value
+
+
+marketplace_option = click.option(
+    '--marketplace', '-m',
+    type=click.Choice(_marketplace_codes, case_sensitive=False),
+    default=None,
+    callback=_validate_marketplace,
+    expose_value=True,
+    is_eager=False,
+    help=f'Amazon marketplace ({", ".join(_marketplace_codes)}). Default: MARKETPLACE env or "us".',
+)
 
 
 def handle_interrupt(signum, frame):
@@ -54,7 +77,8 @@ def main():
     default='kindle',
     help='Amazon department to search.',
 )
-def mine(seed, depth, department):
+@marketplace_option
+def mine(seed, depth, department, marketplace):
     """Mine keywords from Amazon autocomplete.
 
     SEED is the keyword to expand (e.g., "historical fiction").
@@ -63,14 +87,20 @@ def mine(seed, depth, department):
         kdp-scout mine "historical fiction"
         kdp-scout mine "thriller" --depth 2
         kdp-scout mine "romance" --department books
+        kdp-scout mine "ausgestorbene tiere" -m de
     """
     from kdp_scout.keyword_engine import mine_keywords
+    from kdp_scout.config import get_marketplace
+
+    mp = get_marketplace(marketplace)
+    mp_label = marketplace or Config.MARKETPLACE
 
     console.print(
         Panel(
             f'[bold]Seed:[/bold] {seed}\n'
             f'[bold]Depth:[/bold] {depth}\n'
-            f'[bold]Department:[/bold] {department}',
+            f'[bold]Department:[/bold] {department}\n'
+            f'[bold]Marketplace:[/bold] {mp_label} ({mp["domain"]})',
             title='[bold cyan]KDP Scout - Keyword Mining[/bold cyan]',
             border_style='cyan',
         )
@@ -98,6 +128,7 @@ def mine(seed, depth, department):
                 seed,
                 depth=depth,
                 department=department,
+                marketplace=marketplace,
                 progress_callback=on_progress,
             )
         except KeyboardInterrupt:
@@ -212,7 +243,8 @@ def track():
 @click.argument('asin')
 @click.option('--name', default=None, help='Display name for the book.')
 @click.option('--own', is_flag=True, help='Mark as your own book.')
-def track_add(asin, name, own):
+@marketplace_option
+def track_add(asin, name, own, marketplace):
     """Add a book to tracking by ASIN.
 
     Scrapes the Amazon product page for initial data and begins tracking.
@@ -220,12 +252,13 @@ def track_add(asin, name, own):
     Examples:
         kdp-scout track add B003K16PJW --name "The Name of the Rose"
         kdp-scout track add B08N5WRWNW --own --name "My Book Title"
+        kdp-scout track add B0G5B1KZVC --own -m de
     """
     from kdp_scout.competitor_engine import CompetitorEngine
     from kdp_scout.collectors.product_scraper import CaptchaDetected
     from kdp_scout.collectors.bsr_model import sales_velocity_label
 
-    engine = CompetitorEngine()
+    engine = CompetitorEngine(marketplace=marketplace)
     try:
         console.print(f'\n[bold]Adding book:[/bold] {asin.upper()}')
         if name:
@@ -408,7 +441,8 @@ def track_list():
 
 @track.command('snapshot')
 @click.option('--quiet', is_flag=True, help='Suppress output (for cron jobs).')
-def track_snapshot(quiet):
+@marketplace_option
+def track_snapshot(quiet, marketplace):
     """Take a fresh snapshot of all tracked books.
 
     Scrapes current data for every tracked book and stores BSR,
@@ -420,7 +454,7 @@ def track_snapshot(quiet):
     """
     from kdp_scout.competitor_engine import CompetitorEngine
 
-    engine = CompetitorEngine()
+    engine = CompetitorEngine(marketplace=marketplace)
     try:
         books = engine.list_books()
         if not books:
@@ -939,7 +973,8 @@ def export_backend():
     default=None,
     help='Only check top N keywords by score (speeds up probing).',
 )
-def reverse(asin, method, top_n):
+@marketplace_option
+def reverse(asin, method, top_n, marketplace):
     """Reverse ASIN lookup: find keywords a book ranks for.
 
     ASIN is the Amazon ASIN to look up (e.g., B003K16PJW).
@@ -956,7 +991,7 @@ def reverse(asin, method, top_n):
     """
     from kdp_scout.keyword_engine import ReverseASIN
 
-    engine = ReverseASIN()
+    engine = ReverseASIN(marketplace=marketplace)
     try:
         # Determine method display
         if method == 'auto':
@@ -1136,7 +1171,8 @@ def reverse(asin, method, top_n):
     default=200,
     help='Check top N keywords for reverse ASIN (default 200).',
 )
-def discover(asin, top_n):
+@marketplace_option
+def discover(asin, top_n, marketplace):
     """Discover keywords and competitors for a book.
 
     Convenience command that:
@@ -1153,7 +1189,7 @@ def discover(asin, top_n):
     from kdp_scout.keyword_engine import ReverseASIN
     from kdp_scout.collectors.dataforseo import DataForSEOCollector
 
-    engine = ReverseASIN()
+    engine = ReverseASIN(marketplace=marketplace)
     dfs = DataForSEOCollector()
 
     try:
@@ -1307,7 +1343,8 @@ def discover(asin, top_n):
     default=True,
     help='Save discovered keywords to database.',
 )
-def trending(source, list_type, limit, save):
+@marketplace_option
+def trending(source, list_type, limit, save, marketplace):
     """Discover trending keywords without a seed phrase.
 
     Finds popular keywords by scraping Amazon bestseller pages
@@ -1321,17 +1358,23 @@ def trending(source, list_type, limit, save):
         kdp-scout trending --source bestsellers --list-type kindle_movers
         kdp-scout trending --source google --limit 100
         kdp-scout trending --no-save
+        kdp-scout trending -m de
     """
     from kdp_scout.collectors.trending import (
         scrape_bestseller_keywords, discover_trending_keywords,
     )
     from kdp_scout.keyword_engine import mine_keywords
     from kdp_scout.db import KeywordRepository, init_db
+    from kdp_scout.config import get_marketplace
+
+    mp = get_marketplace(marketplace)
+    mp_label = marketplace or Config.MARKETPLACE
 
     console.print(
         Panel(
             f'[bold]Source:[/bold] {source}\n'
             f'[bold]Bestseller list:[/bold] {list_type}\n'
+            f'[bold]Marketplace:[/bold] {mp_label} ({mp["domain"]})\n'
             f'[bold]Save to DB:[/bold] {"Yes" if save else "No"}',
             title='[bold cyan]KDP Scout - Trending Discovery[/bold cyan]',
             border_style='cyan',
@@ -1356,6 +1399,7 @@ def trending(source, list_type, limit, save):
             try:
                 bs_results = scrape_bestseller_keywords(
                     list_type=list_type,
+                    marketplace=marketplace,
                     progress_callback=lambda c, t: progress.update(task, completed=c, total=t),
                 )
             except Exception as e:
@@ -1386,6 +1430,7 @@ def trending(source, list_type, limit, save):
 
             try:
                 gs_results = discover_trending_keywords(
+                    marketplace=marketplace,
                     progress_callback=lambda c, t: progress.update(task, completed=c, total=t),
                 )
             except Exception as e:
@@ -1483,7 +1528,8 @@ def trending(source, list_type, limit, save):
     default=None,
     help='Only mine the first N categories (useful for testing).',
 )
-def mine_categories(categories, depth, department, limit_categories):
+@marketplace_option
+def mine_categories(categories, depth, department, limit_categories, marketplace):
     """Auto-mine keywords across major KDP book categories.
 
     Runs autocomplete mining for each category in the built-in list
@@ -1516,6 +1562,7 @@ def mine_categories(categories, depth, department, limit_categories):
             f'[bold]Categories:[/bold] {len(cat_list)}\n'
             f'[bold]Depth:[/bold] {depth}\n'
             f'[bold]Department:[/bold] {department}\n'
+            f'[bold]Marketplace:[/bold] {marketplace or Config.MARKETPLACE}\n'
             f'[bold]Est. queries:[/bold] ~{len(cat_list) * 27 * depth:,}',
             title='[bold cyan]KDP Scout - Category Mining[/bold cyan]',
             border_style='cyan',
@@ -1558,6 +1605,7 @@ def mine_categories(categories, depth, department, limit_categories):
                     seed=cat,
                     depth=depth,
                     department=department,
+                    marketplace=marketplace,
                 )
 
                 total_new += result['new_count']

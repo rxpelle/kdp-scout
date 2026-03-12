@@ -33,6 +33,9 @@ class Config:
     SEARCH_PROBE_RATE_LIMIT = float(os.getenv('SEARCH_PROBE_RATE_LIMIT', '2.0'))
     DATAFORSEO_RATE_LIMIT = float(os.getenv('DATAFORSEO_RATE_LIMIT', '0.5'))
 
+    # Marketplace (us, de, uk, fr, es, it, etc.)
+    MARKETPLACE = os.getenv('MARKETPLACE', 'us')
+
     # Logging
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
@@ -84,6 +87,101 @@ class Config:
             'PRODUCT_SCRAPE_RATE_LIMIT': f'{cls.PRODUCT_SCRAPE_RATE_LIMIT}s',
             'SEARCH_PROBE_RATE_LIMIT': f'{cls.SEARCH_PROBE_RATE_LIMIT}s',
             'DATAFORSEO_RATE_LIMIT': f'{cls.DATAFORSEO_RATE_LIMIT}s',
+            'MARKETPLACE': cls.MARKETPLACE,
             'LOG_LEVEL': cls.LOG_LEVEL,
             'USER_AGENTS': f'{len(cls.USER_AGENTS)} configured',
         }
+
+
+# Amazon marketplace configurations keyed by country code.
+MARKETPLACES = {
+    'us': {
+        'domain': 'www.amazon.com',
+        'mid': 'ATVPDKIKX0DER',
+        'google_hl': 'en',
+        'bsr_model': 'us_kindle',
+        'bestsellers': {
+            'kindle': 'https://www.amazon.com/gp/bestsellers/digital-text/',
+            'kindle_free': 'https://www.amazon.com/gp/bestsellers/digital-text/154606011/',
+            'kindle_new': 'https://www.amazon.com/gp/new-releases/digital-text/',
+            'kindle_movers': 'https://www.amazon.com/gp/movers-and-shakers/digital-text/',
+        },
+    },
+    'de': {
+        'domain': 'www.amazon.de',
+        'mid': 'A1PA6795UKMFR9',
+        'google_hl': 'de',
+        'bsr_model': 'us_kindle',
+        'bestsellers': {
+            'kindle': 'https://www.amazon.de/gp/bestsellers/digital-text/',
+            'kindle_free': 'https://www.amazon.de/gp/bestsellers/digital-text/660528031/',
+            'kindle_new': 'https://www.amazon.de/gp/new-releases/digital-text/',
+            'kindle_movers': 'https://www.amazon.de/gp/movers-and-shakers/digital-text/',
+        },
+    },
+    'uk': {
+        'domain': 'www.amazon.co.uk',
+        'mid': 'A1F83G8C2ARO7P',
+        'google_hl': 'en',
+        'bsr_model': 'uk_kindle',
+        'bestsellers': {
+            'kindle': 'https://www.amazon.co.uk/gp/bestsellers/digital-text/',
+            'kindle_free': 'https://www.amazon.co.uk/gp/bestsellers/digital-text/350640011/',
+            'kindle_new': 'https://www.amazon.co.uk/gp/new-releases/digital-text/',
+            'kindle_movers': 'https://www.amazon.co.uk/gp/movers-and-shakers/digital-text/',
+        },
+    },
+    'fr': {
+        'domain': 'www.amazon.fr',
+        'mid': 'A13V1IB3VIYBER',
+        'google_hl': 'fr',
+        'bsr_model': 'us_kindle',
+        'bestsellers': {
+            'kindle': 'https://www.amazon.fr/gp/bestsellers/digital-text/',
+            'kindle_new': 'https://www.amazon.fr/gp/new-releases/digital-text/',
+        },
+    },
+    'es': {
+        'domain': 'www.amazon.es',
+        'mid': 'A1RKKUPIHCS9HS',
+        'google_hl': 'es',
+        'bsr_model': 'us_kindle',
+        'bestsellers': {
+            'kindle': 'https://www.amazon.es/gp/bestsellers/digital-text/',
+            'kindle_new': 'https://www.amazon.es/gp/new-releases/digital-text/',
+        },
+    },
+    'it': {
+        'domain': 'www.amazon.it',
+        'mid': 'APJ6JRA9NG5V4',
+        'google_hl': 'it',
+        'bsr_model': 'us_kindle',
+        'bestsellers': {
+            'kindle': 'https://www.amazon.it/gp/bestsellers/digital-text/',
+            'kindle_new': 'https://www.amazon.it/gp/new-releases/digital-text/',
+        },
+    },
+}
+
+
+def get_marketplace(code=None):
+    """Return the marketplace config for a given code.
+
+    Args:
+        code: Two-letter country code (e.g., 'us', 'de'). Defaults to
+              the MARKETPLACE env/config setting.
+
+    Returns:
+        Dict with marketplace settings.
+
+    Raises:
+        ValueError: If the marketplace code is not supported.
+    """
+    code = (code or Config.MARKETPLACE).lower()
+    mp = MARKETPLACES.get(code)
+    if mp is None:
+        supported = ', '.join(sorted(MARKETPLACES))
+        raise ValueError(
+            f'Unknown marketplace "{code}". Supported: {supported}'
+        )
+    return mp

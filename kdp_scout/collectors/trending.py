@@ -14,11 +14,11 @@ from bs4 import BeautifulSoup
 
 from kdp_scout.http_client import fetch, get_browser_headers
 from kdp_scout.rate_limiter import registry as rate_registry
-from kdp_scout.config import Config
+from kdp_scout.config import Config, get_marketplace
 
 logger = logging.getLogger(__name__)
 
-# Amazon Kindle bestseller pages
+# Default Amazon Kindle bestseller pages (US fallback, overridden by marketplace)
 BESTSELLER_URLS = {
     'kindle': 'https://www.amazon.com/gp/bestsellers/digital-text/',
     'kindle_free': 'https://www.amazon.com/gp/bestsellers/digital-text/154606011/',
@@ -99,7 +99,8 @@ TRENDING_BASE_CATEGORIES = [
 ]
 
 
-def scrape_bestseller_keywords(list_type='kindle', progress_callback=None):
+def scrape_bestseller_keywords(list_type='kindle', marketplace=None,
+                               progress_callback=None):
     """Scrape Amazon Kindle bestseller pages for keyword ideas.
 
     Extracts book titles and categories from bestseller listings,
@@ -107,6 +108,7 @@ def scrape_bestseller_keywords(list_type='kindle', progress_callback=None):
 
     Args:
         list_type: One of 'kindle', 'kindle_free', 'kindle_new', 'kindle_movers'.
+        marketplace: Two-letter country code ('us', 'de', etc.).
         progress_callback: Optional callable(completed, total) for progress.
 
     Returns:
@@ -114,10 +116,24 @@ def scrape_bestseller_keywords(list_type='kindle', progress_callback=None):
     """
     rate_registry.get_limiter('product_scrape', rate=Config.PRODUCT_SCRAPE_RATE_LIMIT)
 
-    url = BESTSELLER_URLS.get(list_type)
+    mp = get_marketplace(marketplace)
+    mp_urls = mp.get('bestsellers', BESTSELLER_URLS)
+    mp_identifier = mp.get('domain') or marketplace or 'unknown'
+    url = mp_urls.get(list_type)
     if not url:
-        logger.error(f'Unknown bestseller list type: {list_type}')
-        return []
+        fallback_url = BESTSELLER_URLS.get(list_type)
+        if fallback_url:
+            logger.warning(
+                f'Bestseller list type "{list_type}" not configured for marketplace '
+                f'"{mp_identifier}"; falling back to default URL.'
+            )
+            url = fallback_url
+        else:
+            logger.error(
+                f'Unknown bestseller list type "{list_type}" for marketplace '
+                f'"{mp_identifier}"'
+            )
+            return []
 
     rate_registry.acquire('product_scrape')
 
@@ -162,13 +178,14 @@ def scrape_bestseller_keywords(list_type='kindle', progress_callback=None):
     return results
 
 
-def discover_trending_keywords(progress_callback=None):
+def discover_trending_keywords(marketplace=None, progress_callback=None):
     """Discover trending book keywords via Google suggest.
 
     Uses book-related query patterns with Google's autocomplete API
     to find currently trending topics and genres.
 
     Args:
+        marketplace: Two-letter country code for language hint.
         progress_callback: Optional callable(completed, total) for progress.
 
     Returns:
@@ -176,6 +193,7 @@ def discover_trending_keywords(progress_callback=None):
     """
     rate_registry.get_limiter('autocomplete', rate=Config.AUTOCOMPLETE_RATE_LIMIT)
 
+    mp = get_marketplace(marketplace)
     all_results = {}
     queries = []
 
@@ -187,7 +205,7 @@ def discover_trending_keywords(progress_callback=None):
     completed = 0
 
     for query in queries:
-        suggestions = _query_google_suggest(query)
+        suggestions = _query_google_suggest(query, hl=mp['google_hl'])
         for kw, pos in suggestions:
             # Clean up the keyword for KDP relevance
             cleaned = _clean_book_keyword(kw)
@@ -335,11 +353,12 @@ def _extract_category_keywords(soup):
     return results
 
 
-def _query_google_suggest(query):
+def _query_google_suggest(query, hl='en'):
     """Query Google's autocomplete for book-related suggestions.
 
     Args:
         query: Search query string.
+        hl: Language hint for Google (e.g., 'en', 'de').
 
     Returns:
         List of (keyword, position) tuples.
@@ -350,6 +369,7 @@ def _query_google_suggest(query):
     params = {
         'client': 'firefox',
         'q': query,
+        'hl': hl,
     }
 
     try:
