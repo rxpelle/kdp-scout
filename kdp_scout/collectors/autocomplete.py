@@ -16,7 +16,7 @@ import requests
 
 from kdp_scout.http_client import fetch
 from kdp_scout.rate_limiter import registry as rate_registry
-from kdp_scout.config import Config
+from kdp_scout.config import Config, get_marketplace
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _backoff_until = 0
 _backoff_delay = 0
 
-AUTOCOMPLETE_URL = 'https://completion.amazon.com/api/2017/suggestions'
+AUTOCOMPLETE_URL_TEMPLATE = 'https://completion.{domain}/api/2017/suggestions'
 
 # Department alias mapping
 DEPARTMENT_ALIASES = {
@@ -34,7 +34,8 @@ DEPARTMENT_ALIASES = {
 }
 
 
-def mine_autocomplete(seed, department='kindle', depth=1, progress_callback=None):
+def mine_autocomplete(seed, department='kindle', depth=1, marketplace=None,
+                      progress_callback=None):
     """Mine keywords from Amazon's autocomplete API.
 
     Queries the seed keyword directly, then expands with a-z suffix
@@ -45,6 +46,8 @@ def mine_autocomplete(seed, department='kindle', depth=1, progress_callback=None
         department: Amazon department ('kindle', 'books', or 'all').
         depth: Mining depth. 1 = seed + a-z (27 queries).
                2 = depth 1 + expand each result with a-z.
+        marketplace: Two-letter country code ('us', 'de', etc.).
+                     Defaults to config setting.
         progress_callback: Optional callable(completed, total) for progress updates.
 
     Returns:
@@ -53,6 +56,7 @@ def mine_autocomplete(seed, department='kindle', depth=1, progress_callback=None
     # Initialize rate limiter if not already done
     rate_registry.get_limiter('autocomplete', rate=Config.AUTOCOMPLETE_RATE_LIMIT)
 
+    mp = get_marketplace(marketplace)
     alias = DEPARTMENT_ALIASES.get(department, department)
     all_results = {}  # keyword -> best position
 
@@ -68,7 +72,7 @@ def mine_autocomplete(seed, department='kindle', depth=1, progress_callback=None
     completed = 0
 
     for prefix in prefixes:
-        suggestions = _query_autocomplete(prefix, alias)
+        suggestions = _query_autocomplete(prefix, alias, mp)
         for kw, pos in suggestions:
             if kw not in all_results or pos < all_results[kw]:
                 all_results[kw] = pos
@@ -88,7 +92,7 @@ def mine_autocomplete(seed, department='kindle', depth=1, progress_callback=None
         total_queries = completed + len(expansion_prefixes)
 
         for prefix in expansion_prefixes:
-            suggestions = _query_autocomplete(prefix, alias)
+            suggestions = _query_autocomplete(prefix, alias, mp)
             for kw, pos in suggestions:
                 if kw not in all_results or pos < all_results[kw]:
                     all_results[kw] = pos
@@ -108,12 +112,13 @@ def mine_autocomplete(seed, department='kindle', depth=1, progress_callback=None
     return results
 
 
-def _query_autocomplete(prefix, alias):
+def _query_autocomplete(prefix, alias, mp):
     """Query the Amazon autocomplete API for a single prefix.
 
     Args:
         prefix: Search prefix string.
         alias: Amazon department alias.
+        mp: Marketplace config dict.
 
     Returns:
         List of (keyword, position) tuples.
@@ -130,14 +135,15 @@ def _query_autocomplete(prefix, alias):
         logger.info(f'Adaptive backoff: waiting {wait:.1f}s before next request')
         time.sleep(wait)
 
+    url = AUTOCOMPLETE_URL_TEMPLATE.format(domain=mp['domain'].replace('www.', ''))
     params = {
-        'mid': 'ATVPDKIKX0DER',
+        'mid': mp['mid'],
         'alias': alias,
         'prefix': prefix,
     }
 
     try:
-        response = fetch(AUTOCOMPLETE_URL, params=params)
+        response = fetch(url, params=params)
     except (requests.Timeout, requests.ConnectionError) as e:
         logger.error(f'Network error querying autocomplete for "{prefix}": {e}')
         return []

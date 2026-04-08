@@ -14,11 +14,11 @@ from bs4 import BeautifulSoup
 
 from kdp_scout.http_client import fetch, get_browser_headers
 from kdp_scout.rate_limiter import registry as rate_registry
-from kdp_scout.config import Config
+from kdp_scout.config import Config, get_marketplace
 
 logger = logging.getLogger(__name__)
 
-PRODUCT_URL = 'https://www.amazon.com/dp/{asin}'
+PRODUCT_URL_TEMPLATE = 'https://{domain}/dp/{asin}'
 
 
 class CaptchaDetected(Exception):
@@ -34,9 +34,14 @@ class ProductScraper:
     for each data field.
     """
 
-    def __init__(self):
-        """Initialize the scraper and register the rate limiter."""
+    def __init__(self, marketplace=None):
+        """Initialize the scraper and register the rate limiter.
+
+        Args:
+            marketplace: Two-letter country code ('us', 'de', etc.).
+        """
         rate_registry.get_limiter('product_page', rate=Config.PRODUCT_SCRAPE_RATE_LIMIT)
+        self._mp = get_marketplace(marketplace)
 
     def scrape_product(self, asin):
         """Scrape an Amazon product page for book data.
@@ -66,7 +71,7 @@ class ProductScraper:
         # Respect rate limiting
         rate_registry.acquire('product_page')
 
-        url = PRODUCT_URL.format(asin=asin)
+        url = PRODUCT_URL_TEMPLATE.format(domain=self._mp['domain'], asin=asin)
         logger.info(f'Scraping product page: {url}')
 
         try:

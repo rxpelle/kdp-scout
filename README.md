@@ -45,6 +45,7 @@ Built for self-published authors who want data-driven keyword targeting without 
 - User-agent rotation
 - Proxy support
 - SQLite local storage (no cloud, no accounts, no telemetry)
+- Multi-marketplace support (Amazon.com, .de, .co.uk, .fr, .es, .it)
 - Free tier covers everything; optional DataForSEO for actual search volumes
 
 ## Installation
@@ -111,6 +112,9 @@ kdp-scout trending --source google --limit 100
 # Scrape movers & shakers instead of bestsellers
 kdp-scout trending --source bestsellers --list-type kindle_movers
 
+# Discover trends on a different marketplace
+kdp-scout trending -m de
+
 # Don't save to database (preview only)
 kdp-scout trending --no-save
 ```
@@ -142,6 +146,10 @@ kdp-scout mine "thriller" --depth 2
 
 # Mine in Books department instead of Kindle
 kdp-scout mine "romance" --department books
+
+# Mine on a different Amazon marketplace
+kdp-scout mine "ausgestorbene tiere" -m de
+kdp-scout mine "historical fiction" -m uk
 ```
 
 ### Book Tracking
@@ -152,6 +160,9 @@ kdp-scout track add B003K16PJW --name "The Name of the Rose"
 
 # Add your own book (highlighted in reports)
 kdp-scout track add B08N5WRWNW --own --name "My Book Title"
+
+# Track a book on a different marketplace
+kdp-scout track add B0G5B1KZVC --own -m de --name "Mein Buch"
 
 # List all tracked books with latest data
 kdp-scout track list
@@ -291,9 +302,35 @@ DATAFORSEO_RATE_LIMIT=0.5
 # Database location
 DB_PATH=data/kdp_scout.db
 
+# Amazon marketplace (us, de, uk, fr, es, it)
+MARKETPLACE=us
+
 # Logging level
 LOG_LEVEL=INFO
 ```
+
+### Marketplace
+
+By default, KDP Scout uses Amazon.com (US). To use a different Amazon marketplace, either:
+
+1. **Per command:** Add `-m <code>` to any command:
+   ```bash
+   kdp-scout mine "kriminalroman" -m de
+   kdp-scout trending -m uk
+   ```
+
+2. **Permanently:** Set `MARKETPLACE=de` in your `.env` file.
+
+Supported marketplaces:
+
+| Code | Marketplace |
+|------|-------------|
+| `us` | Amazon.com (default) |
+| `de` | Amazon.de |
+| `uk` | Amazon.co.uk |
+| `fr` | Amazon.fr |
+| `es` | Amazon.es |
+| `it` | Amazon.it |
 
 ## Automation Setup
 

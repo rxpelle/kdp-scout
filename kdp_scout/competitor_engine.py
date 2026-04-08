@@ -7,6 +7,7 @@ Serves as the main entry point for the `track` CLI command group.
 import json
 import logging
 
+from kdp_scout.config import get_marketplace
 from kdp_scout.db import BookRepository, init_db
 from kdp_scout.collectors.product_scraper import ProductScraper, CaptchaDetected
 from kdp_scout.collectors.bsr_model import estimate_daily_sales, estimate_monthly_revenue
@@ -17,11 +18,16 @@ logger = logging.getLogger(__name__)
 class CompetitorEngine:
     """Manages book tracking, snapshots, and competitor comparisons."""
 
-    def __init__(self):
-        """Initialize the engine with database and scraper."""
+    def __init__(self, marketplace=None):
+        """Initialize the engine with database and scraper.
+
+        Args:
+            marketplace: Two-letter country code ('us', 'de', etc.).
+        """
         init_db()
         self._repo = BookRepository()
-        self._scraper = ProductScraper()
+        self._marketplace = get_marketplace(marketplace)
+        self._scraper = ProductScraper(marketplace=marketplace)
 
     def close(self):
         """Close database connection."""
@@ -227,11 +233,12 @@ class CompetitorEngine:
         daily_sales = None
         monthly_revenue = None
         if bsr:
-            daily_sales = estimate_daily_sales(bsr, 'us_kindle')
+            bsr_model = self._marketplace['bsr_model']
+            daily_sales = estimate_daily_sales(bsr, bsr_model)
             price_for_revenue = price_kindle or price_paperback
             if price_for_revenue:
                 monthly_revenue = estimate_monthly_revenue(
-                    bsr, price_for_revenue, 'us_kindle'
+                    bsr, price_for_revenue, bsr_model
                 )
 
         # Serialize category BSR as JSON

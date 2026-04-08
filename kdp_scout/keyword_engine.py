@@ -20,7 +20,7 @@ from kdp_scout.db import (
 from kdp_scout.collectors.autocomplete import mine_autocomplete
 from kdp_scout.http_client import fetch, get_browser_headers
 from kdp_scout.rate_limiter import registry as rate_registry
-from kdp_scout.config import Config
+from kdp_scout.config import Config, get_marketplace
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +206,8 @@ def normalize_own_ranking(rank):
     return max(0.0, (50.0 - rank) / 49.0)
 
 
-def mine_keywords(seed, depth=1, department='kindle', progress_callback=None):
+def mine_keywords(seed, depth=1, department='kindle', marketplace=None,
+                  progress_callback=None):
     """Mine keywords from autocomplete and store results.
 
     Orchestrates the full mining pipeline:
@@ -218,6 +219,7 @@ def mine_keywords(seed, depth=1, department='kindle', progress_callback=None):
         seed: Seed keyword to mine (e.g., "historical fiction").
         depth: Mining depth (1 = seed + a-z, 2 = recursive expansion).
         department: Amazon department ('kindle', 'books', 'all').
+        marketplace: Two-letter country code ('us', 'de', etc.).
         progress_callback: Optional callable(completed, total) for progress.
 
     Returns:
@@ -232,7 +234,7 @@ def mine_keywords(seed, depth=1, department='kindle', progress_callback=None):
 
     logger.info(
         f'Starting keyword mining: seed="{seed}", depth={depth}, '
-        f'department={department}'
+        f'department={department}, marketplace={marketplace or Config.MARKETPLACE}'
     )
 
     # Mine from autocomplete
@@ -240,6 +242,7 @@ def mine_keywords(seed, depth=1, department='kindle', progress_callback=None):
         seed,
         department=department,
         depth=depth,
+        marketplace=marketplace,
         progress_callback=progress_callback,
     )
 
@@ -559,14 +562,15 @@ class ReverseASIN:
         'a-spacing-micro s-sponsored-label',
     ]
 
-    SEARCH_URL = 'https://www.amazon.com/s'
+    SEARCH_URL_TEMPLATE = 'https://{domain}/s'
 
-    def __init__(self):
+    def __init__(self, marketplace=None):
         """Initialize with database access and rate limiter."""
         init_db()
         self._kw_repo = KeywordRepository()
         self._book_repo = BookRepository()
         self._ranking_repo = KeywordRankingRepository()
+        self._mp = get_marketplace(marketplace)
 
         # Initialize rate limiter for search probing
         rate_registry.get_limiter(
@@ -788,8 +792,9 @@ class ReverseASIN:
         }
 
         try:
+            url = self.SEARCH_URL_TEMPLATE.format(domain=self._mp['domain'])
             response = fetch(
-                self.SEARCH_URL,
+                url,
                 params=params,
                 headers=get_browser_headers(),
             )
