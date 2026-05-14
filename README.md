@@ -8,7 +8,7 @@ Built for self-published authors who want data-driven keyword targeting without 
 
 I'm an indie author publishing a 12-book historical thriller series solo. By Book 3 I needed real keyword data and couldn't justify a $50/month Publisher Rocket subscription — so I built this. It's free, always will be, and runs on your machine: no cloud, no accounts, no telemetry, no upsell.
 
-If KDP Scout helps you and you want to follow what I'm building next — including the [other free tools in the same project](#more-free-tools-from-this-project) — the [newsletter](https://randypellegrini.com/#newsletter) is the way. One email a month, no marketing spam.
+If KDP Scout helps you and you want to follow what I'm building next — including the [other free tools in the same project](#more-free-tools-from-this-project) — the [newsletter](https://randypellegrini.com/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout#newsletter) is the way. One email a month, no marketing spam.
 
 ## Features
 
@@ -564,7 +564,7 @@ If KDP Scout has been useful to you, the single most helpful thing you can do is
 | 3 | [The First Key](https://www.amazon.com/dp/B0GSWLM1WV) | new |
 | 4 | [Love Remembers in Silence](https://www.amazon.com/dp/B0GX2TG21Y) | new |
 
-[Browse the series](https://randypellegrini.com/series/) · [Free prequel: *The Edmund Fragments*](https://randypellegrini.com/free-story/) · [Newsletter](https://randypellegrini.com/#newsletter)
+[Browse the series](https://randypellegrini.com/series/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout) · [Free prequel: *The Edmund Fragments*](https://randypellegrini.com/free-story/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout) · [Newsletter](https://randypellegrini.com/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout#newsletter)
 
 An honest Amazon review from someone who actually uses these tools means more than I can say.
 
