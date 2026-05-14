@@ -559,10 +559,10 @@ If KDP Scout has been useful to you, the single most helpful thing you can do is
 
 | Book | Title | |
 |------|-------|---|
-| 1 | [The Aethelred Cipher](https://www.amazon.com/Aethelred-Cipher-ebook/dp/B0GJTGCHS2) | 4.8★ |
-| 2 | [The Genesis Protocol](https://www.amazon.com/dp/B0GPM973N1) | 4.9★ |
-| 3 | [The First Key](https://www.amazon.com/dp/B0GSWLM1WV) | new |
-| 4 | [Love Remembers in Silence](https://www.amazon.com/dp/B0GX2TG21Y) | new |
+| 1 | [The Aethelred Cipher](https://randypellegrini.com/go/aethelred-cipher/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout) | 4.8★ |
+| 2 | [The Genesis Protocol](https://randypellegrini.com/go/genesis-protocol/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout) | 4.9★ |
+| 3 | [The First Key](https://randypellegrini.com/go/first-key/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout) | new |
+| 4 | [Love Remembers in Silence](https://randypellegrini.com/go/love-remembers/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout) | new |
 
 [Browse the series](https://randypellegrini.com/series/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout) · [Free prequel: *The Edmund Fragments*](https://randypellegrini.com/free-story/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout) · [Newsletter](https://randypellegrini.com/?utm_source=github&utm_medium=readme&utm_campaign=kdp-scout#newsletter)
 
