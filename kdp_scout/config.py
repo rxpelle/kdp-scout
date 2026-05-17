@@ -163,6 +163,32 @@ MARKETPLACES = {
             'kindle_new': 'https://www.amazon.it/gp/new-releases/digital-text/',
         },
     },
+    # Approximate BSR estimates for Canada reuse the US Kindle model.
+    'ca': {
+        'domain': 'www.amazon.ca',
+        'mid': 'A2EUQ1WTGCTBG2',
+        'google_hl': 'en',
+        'bsr_model': 'us_kindle',
+        'bestsellers': {
+            'kindle': 'https://www.amazon.ca/gp/bestsellers/digital-text/',
+            'kindle_free': 'https://www.amazon.ca/gp/bestsellers/digital-text/ref=zg_bs?ie=UTF8&tf=1',
+            'kindle_new': 'https://www.amazon.ca/gp/new-releases/digital-text/',
+            'kindle_movers': 'https://www.amazon.ca/gp/movers-and-shakers/digital-text/',
+        },
+    },
+    # Approximate BSR estimates for Australia reuse the US Kindle model.
+    'au': {
+        'domain': 'www.amazon.com.au',
+        'mid': 'A39IBJ37TRP1C6',
+        'google_hl': 'en',
+        'bsr_model': 'us_kindle',
+        'bestsellers': {
+            'kindle': 'https://www.amazon.com.au/gp/bestsellers/digital-text/',
+            'kindle_free': 'https://www.amazon.com.au/gp/bestsellers/digital-text/ref=zg_bs?ie=UTF8&tf=1',
+            'kindle_new': 'https://www.amazon.com.au/gp/new-releases/digital-text/',
+            'kindle_movers': 'https://www.amazon.com.au/gp/movers-and-shakers/digital-text/',
+        },
+    },
 }
 
 

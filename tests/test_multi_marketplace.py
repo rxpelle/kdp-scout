@@ -53,10 +53,15 @@ class TestMarketplaceConfig:
         assert get_marketplace('De') == get_marketplace('de')
 
     def test_get_marketplace_returns_correct_domain(self):
+        assert get_marketplace('ca')['domain'] == 'www.amazon.ca'
+        assert get_marketplace('au')['domain'] == 'www.amazon.com.au'
         assert get_marketplace('de')['domain'] == 'www.amazon.de'
         assert get_marketplace('uk')['domain'] == 'www.amazon.co.uk'
         assert get_marketplace('fr')['domain'] == 'www.amazon.fr'
 
+    def test_get_marketplace_returns_correct_mid(self):
+        assert get_marketplace('ca')['mid'] == 'A2EUQ1WTGCTBG2'
+        assert get_marketplace('au')['mid'] == 'A39IBJ37TRP1C6'
     def test_get_marketplace_invalid_raises(self):
         with pytest.raises(ValueError, match='Unknown marketplace "zz"'):
             get_marketplace('zz')
@@ -115,6 +120,21 @@ class TestAutocompleteMarketplace:
         )
         assert url == 'https://completion.amazon.co.uk/api/2017/suggestions'
 
+    def test_url_template_ca(self):
+        from kdp_scout.collectors.autocomplete import AUTOCOMPLETE_URL_TEMPLATE
+        mp = get_marketplace('ca')
+        url = AUTOCOMPLETE_URL_TEMPLATE.format(
+            domain=mp['domain'].replace('www.', '')
+        )
+        assert url == 'https://completion.amazon.ca/api/2017/suggestions'
+
+    def test_url_template_au(self):
+        from kdp_scout.collectors.autocomplete import AUTOCOMPLETE_URL_TEMPLATE
+        mp = get_marketplace('au')
+        url = AUTOCOMPLETE_URL_TEMPLATE.format(
+            domain=mp['domain'].replace('www.', '')
+        )
+        assert url == 'https://completion.amazon.com.au/api/2017/suggestions'
     @patch('kdp_scout.collectors.autocomplete.fetch')
     @patch('kdp_scout.collectors.autocomplete.rate_registry')
     def test_query_autocomplete_uses_marketplace_mid(self, mock_rate, mock_fetch):
@@ -278,6 +298,35 @@ class TestTrendingMarketplace:
         called_url = mock_fetch.call_args[0][0]
         assert 'amazon.co.uk' in called_url
 
+    @patch('kdp_scout.collectors.trending.fetch')
+    @patch('kdp_scout.collectors.trending.rate_registry')
+    def test_scrape_bestsellers_uses_canada_url(self, mock_rate, mock_fetch):
+        from kdp_scout.collectors.trending import scrape_bestseller_keywords
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '<html><body></body></html>'
+        mock_fetch.return_value = mock_response
+
+        scrape_bestseller_keywords(list_type='kindle', marketplace='ca')
+
+        called_url = mock_fetch.call_args[0][0]
+        assert 'amazon.ca' in called_url
+
+    @patch('kdp_scout.collectors.trending.fetch')
+    @patch('kdp_scout.collectors.trending.rate_registry')
+    def test_scrape_bestsellers_uses_australia_url(self, mock_rate, mock_fetch):
+        from kdp_scout.collectors.trending import scrape_bestseller_keywords
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '<html><body></body></html>'
+        mock_fetch.return_value = mock_response
+
+        scrape_bestseller_keywords(list_type='kindle', marketplace='au')
+
+        called_url = mock_fetch.call_args[0][0]
+        assert 'amazon.com.au' in called_url
 
 class TestTrendingBestsellerFallback:
     """scrape_bestseller_keywords falls back to US URL for missing list types."""
