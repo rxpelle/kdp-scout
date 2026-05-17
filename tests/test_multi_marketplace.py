@@ -62,6 +62,7 @@ class TestMarketplaceConfig:
     def test_get_marketplace_returns_correct_mid(self):
         assert get_marketplace('ca')['mid'] == 'A2EUQ1WTGCTBG2'
         assert get_marketplace('au')['mid'] == 'A39IBJ37TRP1C6'
+
     def test_get_marketplace_invalid_raises(self):
         with pytest.raises(ValueError, match='Unknown marketplace "zz"'):
             get_marketplace('zz')
@@ -135,6 +136,7 @@ class TestAutocompleteMarketplace:
             domain=mp['domain'].replace('www.', '')
         )
         assert url == 'https://completion.amazon.com.au/api/2017/suggestions'
+
     @patch('kdp_scout.collectors.autocomplete.fetch')
     @patch('kdp_scout.collectors.autocomplete.rate_registry')
     def test_query_autocomplete_uses_marketplace_mid(self, mock_rate, mock_fetch):

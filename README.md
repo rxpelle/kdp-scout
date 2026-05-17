@@ -341,6 +341,7 @@ Supported marketplaces:
 | `it` | Amazon.it |
 
 Canada and Australia currently reuse the `us_kindle` BSR model, so sales and revenue estimates there should be treated as approximate.
+
 ## Automation Setup
 
 KDP Scout can run automatically via cron to keep your data fresh.
