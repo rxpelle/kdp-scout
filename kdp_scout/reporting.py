@@ -74,14 +74,14 @@ class ReportingEngine:
                 '[yellow]No keywords in database. '
                 'Run "kdp-scout mine" first.[/yellow]'
             )
-            return
+            return 0
 
         if output_format == 'csv':
             self._keyword_summary_csv(keywords)
-            return
+            return len(keywords)
         if output_format == 'json':
             self._keyword_summary_json(keywords)
-            return
+            return len(keywords)
 
         table = Table(
             title='Top Keywords (by Score)',
@@ -139,6 +139,7 @@ class ReportingEngine:
             f'\n[dim]Showing {len(keywords)} of {total} total keywords '
             f'(min score: {min_score})[/dim]'
         )
+        return len(keywords)
 
     def _keyword_summary_csv(self, keywords):
         """Output keyword summary as CSV to stdout."""
@@ -187,7 +188,7 @@ class ReportingEngine:
                 '[yellow]No books tracked. Use "kdp-scout track add <ASIN>" '
                 'to start.[/yellow]'
             )
-            return
+            return 0
 
         table = Table(
             title='Competitor Comparison',
@@ -235,6 +236,7 @@ class ReportingEngine:
             )
 
         console.print(table)
+        return len(books)
 
     # ── Keyword Gap Analysis ──────────────────────────────────────
 
@@ -251,6 +253,7 @@ class ReportingEngine:
         """
         has_ranking_data = False
         has_ads_data = self._ads_repo.get_search_term_count() > 0
+        gap_count = 0
 
         # Check for ranking data from reverse ASIN
         books = self._book_repo.get_all_books()
@@ -270,6 +273,7 @@ class ReportingEngine:
             gaps = self._ranking_repo.get_gaps(own_ids, comp_ids)
             if gaps:
                 has_ranking_data = True
+                gap_count += len(gaps)
                 table = Table(
                     title='Competitor Keywords You Don\'t Rank For',
                     show_lines=False,
@@ -317,6 +321,7 @@ class ReportingEngine:
             position_gaps = self._find_position_gaps(own_ids, comp_ids)
             if position_gaps:
                 has_ranking_data = True
+                gap_count += len(position_gaps)
                 table = Table(
                     title='Keywords Where Competitors Rank Higher',
                     show_lines=False,
@@ -362,6 +367,7 @@ class ReportingEngine:
             opportunities = self._ads_repo.get_opportunity_keywords()
 
             if opportunities:
+                gap_count += len(opportunities)
                 table = Table(
                     title='Ads Keywords: Impressions but No Orders',
                     show_lines=False,
@@ -406,6 +412,8 @@ class ReportingEngine:
                 'Run "kdp-scout reverse <ASIN>" to get ranking data, or\n'
                 'use "kdp-scout import-ads <file>" to import ads data.[/yellow]'
             )
+
+        return gap_count
 
     def _find_position_gaps(self, own_book_ids, competitor_book_ids):
         """Find keywords where competitors rank higher than own books.
@@ -471,12 +479,12 @@ class ReportingEngine:
                 'Use "kdp-scout import-ads <file>" to import your '
                 'Amazon Ads search term report first.[/yellow]'
             )
-            return
+            return 0
 
         terms = self._ads_repo.get_aggregated_search_terms()
 
         if not terms:
-            return
+            return 0
 
         table = Table(
             title='Amazon Ads - Search Term Performance',
@@ -539,6 +547,7 @@ class ReportingEngine:
             f'Orders: {total_orders:,} | '
             f'ACOS: {overall_acos:.1f}%'
         )
+        return len(terms)
 
     # ── Trend Report ──────────────────────────────────────────────
 
@@ -560,7 +569,7 @@ class ReportingEngine:
                 '[yellow]No keywords in database. '
                 'Run "kdp-scout mine" first.[/yellow]'
             )
-            return
+            return 0
 
         table = Table(
             title=f'Keyword Trends (Last {days} Days)',
@@ -634,6 +643,7 @@ class ReportingEngine:
         console.print(
             f'\n[dim]{len(keywords)} keywords analyzed over {days} days[/dim]'
         )
+        return len(keywords)
 
     # ── Export: Amazon Ads ────────────────────────────────────────
 
@@ -693,7 +703,7 @@ class ReportingEngine:
                 '[yellow]No keywords in database. '
                 'Run "kdp-scout mine" and "kdp-scout score" first.[/yellow]'
             )
-            return
+            return 0
 
         # Build list of (keyword_text, score, individual_words)
         keyword_data = []
@@ -777,6 +787,7 @@ class ReportingEngine:
         console.print(
             f'[bold]Total score packed:[/bold] {total_score:.0f}'
         )
+        return sum(1 for slot in slots if slot)
 
     # ── Export: Semantic KDP Backend Keywords ──────────────────────
 
@@ -804,7 +815,7 @@ class ReportingEngine:
                 '[yellow]No keywords in database. '
                 'Run "kdp-scout mine" and "kdp-scout score" first.[/yellow]'
             )
-            return
+            return 0
 
         keyword_texts = [kw['keyword'] for kw in keywords]
 
@@ -834,7 +845,7 @@ class ReportingEngine:
                 '[yellow]Could not generate semantic phrases. '
                 'Check that ANTHROPIC_API_KEY is set in your .env file.[/yellow]'
             )
-            return
+            return 0
 
         # Pack phrases into 7 slots (50 bytes each), preserving whole phrases
         slots = ['' for _ in range(KDP_SLOT_COUNT)]
@@ -924,6 +935,7 @@ class ReportingEngine:
         )
         console.print()
         self.export_backend_keywords()
+        return sum(1 for slot in slots if slot)
 
 
 # ── Utility functions ─────────────────────────────────────────────

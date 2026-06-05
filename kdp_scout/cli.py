@@ -5,9 +5,12 @@ keyword research, competitor analysis, ads integration, and reporting.
 """
 
 import sys
+import io
 import json
 import signal
 import logging
+import contextlib
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -45,6 +48,37 @@ marketplace_option = click.option(
     is_eager=False,
     help=f'Amazon marketplace ({", ".join(_marketplace_codes)}). Default: MARKETPLACE env or "us".',
 )
+
+
+output_option = click.option(
+    '--output', '-o',
+    type=click.Path(dir_okay=False, writable=True, path_type=Path),
+    default=None,
+    help='Write output to a file instead of stdout.',
+)
+
+
+def _write_output_file(output_path, render_func):
+    """Capture command output and write it to a UTF-8 file."""
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        count = render_func()
+
+    content = buffer.getvalue()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(content, encoding='utf-8')
+
+    row_count = _row_count(count, content)
+    click.echo(f'Wrote {row_count} rows to {output_path}', err=True)
+
+
+def _row_count(count, content):
+    """Return a practical row count for output confirmations."""
+    if isinstance(count, int):
+        return count
+    if isinstance(count, str):
+        content = count
+    return max(0, content.count('\n') - 1)
 
 
 def handle_interrupt(signum, frame):
@@ -813,7 +847,8 @@ def report():
 @click.option('--format', 'output_format',
               type=click.Choice(['table', 'csv', 'json']),
               default='table', help='Output format.')
-def report_keywords(limit, min_score, output_format):
+@output_option
+def report_keywords(limit, min_score, output_format, output):
     """Show top keywords ranked by score.
 
     Examples:
@@ -825,15 +860,22 @@ def report_keywords(limit, min_score, output_format):
 
     engine = ReportingEngine()
     try:
-        engine.keyword_summary(
-            limit=limit, min_score=min_score, output_format=output_format,
+        render = lambda: engine.keyword_summary(
+            limit=limit,
+            min_score=min_score,
+            output_format=output_format,
         )
+        if output:
+            _write_output_file(output, render)
+        else:
+            render()
     finally:
         engine.close()
 
 
 @report.command('competitors')
-def report_competitors():
+@output_option
+def report_competitors(output):
     """Show competitor comparison report.
 
     Example:
@@ -843,13 +885,17 @@ def report_competitors():
 
     engine = ReportingEngine()
     try:
-        engine.competitor_summary()
+        if output:
+            _write_output_file(output, engine.competitor_summary)
+        else:
+            engine.competitor_summary()
     finally:
         engine.close()
 
 
 @report.command('ads')
-def report_ads():
+@output_option
+def report_ads(output):
     """Show Amazon Ads search term performance report.
 
     Displays aggregated performance data from imported search term reports.
@@ -861,13 +907,17 @@ def report_ads():
 
     engine = ReportingEngine()
     try:
-        engine.ads_performance()
+        if output:
+            _write_output_file(output, engine.ads_performance)
+        else:
+            engine.ads_performance()
     finally:
         engine.close()
 
 
 @report.command('gaps')
-def report_gaps():
+@output_option
+def report_gaps(output):
     """Show keyword gap analysis.
 
     Identifies keywords where you get impressions but no orders,
@@ -880,14 +930,18 @@ def report_gaps():
 
     engine = ReportingEngine()
     try:
-        engine.keyword_gaps()
+        if output:
+            _write_output_file(output, engine.keyword_gaps)
+        else:
+            engine.keyword_gaps()
     finally:
         engine.close()
 
 
 @report.command('trends')
 @click.option('--days', default=30, help='Number of days to look back.')
-def report_trends(days):
+@output_option
+def report_trends(days, output):
     """Show keyword metric changes over time.
 
     Example:
@@ -898,7 +952,11 @@ def report_trends(days):
 
     engine = ReportingEngine()
     try:
-        engine.trend_report(days=days)
+        render = lambda: engine.trend_report(days=days)
+        if output:
+            _write_output_file(output, render)
+        else:
+            render()
     finally:
         engine.close()
 
@@ -918,7 +976,8 @@ def export():
 @click.option('--format', 'output_format',
               type=click.Choice(['csv']),
               default='csv', help='Output format.')
-def export_ads(min_score, output_format):
+@output_option
+def export_ads(min_score, output_format, output):
     """Export keywords formatted for Amazon Ads campaign import.
 
     Outputs CSV to stdout for easy piping to a file.
@@ -931,7 +990,14 @@ def export_ads(min_score, output_format):
 
     engine = ReportingEngine()
     try:
-        engine.export_for_ads(min_score=min_score, output_format=output_format)
+        render = lambda: engine.export_for_ads(
+            min_score=min_score,
+            output_format=output_format,
+        )
+        if output:
+            _write_output_file(output, render)
+        else:
+            render()
     finally:
         engine.close()
 
@@ -943,7 +1009,8 @@ def export_ads(min_score, output_format):
               help='Book title for context (used with --semantic).')
 @click.option('--genre', default=None,
               help='Book genre for context (used with --semantic).')
-def export_backend(semantic, title, genre):
+@output_option
+def export_backend(semantic, title, genre, output):
     """Generate optimized KDP backend keyword slots.
 
     Packs the highest-scoring keywords into 7 slots of 50 bytes each,
@@ -962,11 +1029,17 @@ def export_backend(semantic, title, genre):
     engine = ReportingEngine()
     try:
         if semantic:
-            engine.export_semantic_keywords(
-                book_title=title, book_genre=genre,
+            render = lambda: engine.export_semantic_keywords(
+                book_title=title,
+                book_genre=genre,
             )
         else:
-            engine.export_backend_keywords()
+            render = engine.export_backend_keywords
+
+        if output:
+            _write_output_file(output, render)
+        else:
+            render()
     finally:
         engine.close()
 
