@@ -4,7 +4,7 @@ setup(
     name='kdp-scout',
     version='0.3.0',
     description='Amazon KDP keyword research and competitor analysis tool',
-    long_description=open('README.md').read(),
+    long_description=open('README.md', encoding='utf-8').read(),
     long_description_content_type='text/markdown',
     author='KDP Scout Contributors',
     url='https://github.com/rxpelle/kdp-scout',
