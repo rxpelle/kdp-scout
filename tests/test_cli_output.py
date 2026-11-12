@@ -137,7 +137,8 @@ def test_real_engine_writes_rich_table_to_file(temp_db, tmp_path, monkeypatch):
     """A real ReportingEngine renders a Rich table through redirect_stdout
     into the output file — the path the mocked tests cannot reach."""
     # Force a wide console so table cells are not width-wrapped/truncated.
-    monkeypatch.setattr(reporting, 'console', Console(width=200))
+    # Rich 15 ignores width alone when TERM is dumb unless height is set too.
+    monkeypatch.setattr(reporting, 'console', Console(width=200, height=50))
     _seed_keywords([('medieval thriller books', 90), ('historical conspiracy', 70)])
 
     output_path = tmp_path / 'keywords.txt'

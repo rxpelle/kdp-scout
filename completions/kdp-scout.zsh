@@ -12,6 +12,7 @@ _kdp_scout() {
     commands=(
         'mine:Mine keywords from Amazon autocomplete'
         'config:View and manage configuration'
+        'doctor:Check local setup and print a health report'
         'track:Track and monitor competitor books'
         'import-ads:Import Amazon Ads search term report CSV'
         'score:Score all keywords based on available signals'
