@@ -11,6 +11,7 @@ import signal
 import logging
 import contextlib
 from pathlib import Path
+from typing import NamedTuple, Optional
 
 import click
 from rich.console import Console
@@ -2378,6 +2379,475 @@ def category_finder(keyword, target_sales, department):
             '\n[dim]Tip: Try increasing --target-sales or searching for '
             'more niche keywords to find beatable categories.[/dim]'
         )
+
+
+# -- Doctor command --------------------------------------------------------
+
+# Matches python_requires in setup.py. CI also tests 3.9.
+MIN_PYTHON = (3, 9)
+
+# Public robots.txt only. This check must not call a paid API.
+NETWORK_TIMEOUT_SECONDS = 5
+
+_REQUIRED_TABLES = (
+    'keywords',
+    'keyword_metrics',
+    'books',
+    'book_snapshots',
+    'keyword_rankings',
+    'ads_search_terms',
+    'categories',
+    'semantic_clusters',
+)
+
+
+class CheckResult(NamedTuple):
+    """Outcome of one doctor check.
+
+    Attributes:
+        name: Short label printed before the colon.
+        ok: True when the check passed.
+        detail: Status text printed after the colon. Must not contain secrets.
+        fix: One-line remedy. Printed only when the check failed.
+        required: When False, a failure does not change the exit code.
+    """
+
+    name: str
+    ok: bool
+    detail: str
+    fix: Optional[str] = None
+    required: bool = True
+
+
+def check_python_version(version_info=None):
+    """Check that the running interpreter meets the project minimum.
+
+    Args:
+        version_info: Optional sys.version_info-like sequence. Defaults
+            to the running interpreter.
+
+    Returns:
+        CheckResult for the Python version check.
+    """
+    version_info = sys.version_info if version_info is None else version_info
+    major, minor, micro = version_info[:3]
+    current = f'{major}.{minor}.{micro}'
+    required = f'{MIN_PYTHON[0]}.{MIN_PYTHON[1]}'
+    detail = f'{current} (>= {required} required)'
+    if (major, minor) >= MIN_PYTHON:
+        return CheckResult('Python version', True, detail)
+    return CheckResult(
+        'Python version',
+        False,
+        detail,
+        fix=f'Install Python {required} or newer and recreate the virtual environment',
+    )
+
+
+def check_virtualenv(prefix=None, base_prefix=None):
+    """Check that the interpreter is running inside a virtual environment.
+
+    Detection uses sys.prefix != sys.base_prefix, which covers venv
+    and virtualenv.
+
+    Args:
+        prefix: Optional sys.prefix override, used by tests.
+        base_prefix: Optional sys.base_prefix override, used by tests.
+
+    Returns:
+        CheckResult for the virtual environment check.
+    """
+    prefix = sys.prefix if prefix is None else prefix
+    base_prefix = sys.base_prefix if base_prefix is None else base_prefix
+    if prefix != base_prefix:
+        name = Path(prefix).name or str(prefix)
+        return CheckResult('Virtual environment', True, f'active ({name})')
+    return CheckResult(
+        'Virtual environment',
+        False,
+        'not active',
+        fix='python -m venv .venv && source .venv/bin/activate',
+    )
+
+
+def env_file_path():
+    """Return the .env path that config.py loads.
+
+    Returns:
+        Path to the project-root .env file.
+    """
+    return Path(__file__).resolve().parent.parent / '.env'
+
+
+def _database_display_path(resolved):
+    """Return a short database path for the doctor report.
+
+    Args:
+        resolved: Absolute database path from Config.get_db_path().
+
+    Returns:
+        The configured relative path when DB_PATH is relative, otherwise
+        the resolved path.
+    """
+    configured = Path(Config.DB_PATH)
+    if not configured.is_absolute():
+        return configured.as_posix()
+    return str(resolved)
+
+
+def check_database():
+    """Check that the SQLite database exists and has the expected schema.
+
+    The project does not stamp PRAGMA user_version during init. When
+    that value is 0, the detail says the schema is present. A non-zero
+    user_version is reported as the schema version. This check never
+    creates a database file.
+
+    Returns:
+        CheckResult for the database check.
+    """
+    import sqlite3
+    from urllib.request import pathname2url
+
+    resolved = Path(Config.get_db_path())
+    display = _database_display_path(resolved)
+    if not resolved.is_file():
+        return CheckResult(
+            'Database',
+            False,
+            'not initialized',
+            fix='kdp-scout config init',
+        )
+
+    uri = f'file:{pathname2url(str(resolved))}?mode=ro'
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+    except sqlite3.Error:
+        try:
+            conn = sqlite3.connect(str(resolved))
+        except sqlite3.Error:
+            return CheckResult(
+                'Database',
+                False,
+                'could not be read',
+                fix='kdp-scout config init',
+            )
+    try:
+        try:
+            table_rows = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+            present = {row[0] for row in table_rows}
+            missing = [name for name in _REQUIRED_TABLES if name not in present]
+            if 'keywords' in present:
+                columns = [
+                    row[1]
+                    for row in conn.execute('PRAGMA table_info(keywords)')
+                ]
+                if 'score' not in columns:
+                    missing.append('keywords.score')
+            version_row = conn.execute('PRAGMA user_version').fetchone()
+            version = version_row[0] if version_row else 0
+        except sqlite3.Error:
+            return CheckResult(
+                'Database',
+                False,
+                'could not be read',
+                fix='kdp-scout config init',
+            )
+    finally:
+        conn.close()
+
+    if missing:
+        shown = ', '.join(missing[:4])
+        extra = f' (+{len(missing) - 4} more)' if len(missing) > 4 else ''
+        return CheckResult(
+            'Database',
+            False,
+            f'schema incomplete (missing {shown}{extra})',
+            fix='kdp-scout config init',
+        )
+
+    schema = f'schema version {version}' if version else 'schema present'
+    return CheckResult('Database', True, f'{display} exists, {schema}')
+
+
+def check_configuration():
+    """Check .env and the marketplace the application will use.
+
+    A missing .env file passes. Every setting has a default, and the
+    README treats the file as optional. An unreadable file or an
+    unsupported MARKETPLACE fails. Secret values are not printed.
+
+    Returns:
+        CheckResult for the configuration check.
+    """
+    from dotenv import dotenv_values
+
+    path = env_file_path()
+    file_market = None
+    if path.exists() and not path.is_file():
+        return CheckResult(
+            'Configuration',
+            False,
+            '.env could not be read',
+            fix='Check that .env is a file, or recreate it from .env.example',
+        )
+    loaded = path.is_file()
+    if loaded:
+        try:
+            values = dotenv_values(path) or {}
+        except (OSError, UnicodeError, ValueError):
+            return CheckResult(
+                'Configuration',
+                False,
+                '.env could not be read',
+                fix='Check that .env is readable, or recreate it from .env.example',
+            )
+        raw = values.get('MARKETPLACE')
+        if raw is not None and str(raw).strip():
+            file_market = str(raw).strip().lower()
+
+    if file_market and file_market not in MARKETPLACES:
+        return CheckResult(
+            'Configuration',
+            False,
+            f'MARKETPLACE={file_market} is not supported',
+            fix='Set MARKETPLACE to one of: ' + ', '.join(sorted(MARKETPLACES)),
+        )
+
+    effective = (Config.MARKETPLACE or 'us').strip().lower()
+    if effective not in MARKETPLACES:
+        return CheckResult(
+            'Configuration',
+            False,
+            f'MARKETPLACE={effective} is not supported',
+            fix='Set MARKETPLACE to one of: ' + ', '.join(sorted(MARKETPLACES)),
+        )
+
+    if loaded:
+        detail = f'.env loaded, MARKETPLACE={effective}'
+    else:
+        detail = f'no .env file (optional), MARKETPLACE={effective}'
+    return CheckResult('Configuration', True, detail)
+
+
+def _network_target():
+    """Return the free robots.txt URL for the configured marketplace.
+
+    Returns:
+        Tuple of (domain, url). Falls back to www.amazon.com when the
+        marketplace code is not supported.
+    """
+    try:
+        domain = get_marketplace()['domain']
+    except ValueError:
+        domain = 'www.amazon.com'
+    return domain, f'https://{domain}/robots.txt'
+
+
+def check_network(timeout=NETWORK_TIMEOUT_SECONDS):
+    """Check that the configured Amazon domain answers on the network.
+
+    Sends HTTP HEAD to that domain's robots.txt with a short timeout.
+    A 405 response is retried once with GET, still against robots.txt.
+    No paid API is contacted. Proxy URLs are never printed.
+
+    Args:
+        timeout: Socket timeout in seconds.
+
+    Returns:
+        CheckResult for the network check.
+    """
+    import time
+    import requests
+
+    domain, url = _network_target()
+    proxy = (Config.PROXY_URL or '').strip()
+    proxies = {'http': proxy, 'https': proxy} if proxy else None
+    started = time.perf_counter()
+    try:
+        response = requests.head(
+            url,
+            timeout=timeout,
+            allow_redirects=True,
+            proxies=proxies,
+        )
+        if response.status_code == 405:
+            response.close()
+            response = requests.get(
+                url,
+                timeout=timeout,
+                allow_redirects=True,
+                proxies=proxies,
+                stream=True,
+            )
+            response.close()
+    except requests.RequestException:
+        return CheckResult(
+            'Network',
+            False,
+            f'{domain} unreachable',
+            fix='Check your internet connection or PROXY_URL',
+        )
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if response.status_code < 400:
+        return CheckResult(
+            'Network',
+            True,
+            f'{domain} reachable (HTTP {response.status_code}, {elapsed_ms}ms)',
+        )
+    return CheckResult(
+        'Network',
+        False,
+        f'{domain} returned HTTP {response.status_code}',
+        fix='Check your internet connection or PROXY_URL',
+    )
+
+
+def check_dataforseo():
+    """Report whether DataForSEO credentials are set.
+
+    The integration is optional. Both values must be set together.
+    A partial pair fails this check but does not fail the command.
+    Credential values are never included in the result.
+
+    Returns:
+        CheckResult for the DataForSEO check.
+    """
+    login_set = bool((Config.DATAFORSEO_LOGIN or '').strip())
+    key_set = bool((Config.DATAFORSEO_API_KEY or '').strip())
+    if login_set and key_set:
+        return CheckResult(
+            'DataForSEO', True, 'configured (optional)', required=False,
+        )
+    if not login_set and not key_set:
+        return CheckResult(
+            'DataForSEO', True, 'not configured (optional)', required=False,
+        )
+    missing = []
+    if not login_set:
+        missing.append('DATAFORSEO_LOGIN')
+    if not key_set:
+        missing.append('DATAFORSEO_API_KEY')
+    return CheckResult(
+        'DataForSEO',
+        False,
+        f'incomplete ({" and ".join(missing)} not set)',
+        fix=(
+            'Set both DATAFORSEO_LOGIN and DATAFORSEO_API_KEY in .env, '
+            'or leave both empty'
+        ),
+        required=False,
+    )
+
+
+def check_cron():
+    """Report whether a KDP Scout crontab entry is installed.
+
+    Cron is optional. A missing crontab command or entry still passes.
+
+    Returns:
+        CheckResult for the cron check.
+    """
+    import shutil
+    from kdp_scout.cron_helper import has_existing_entry
+
+    if shutil.which('crontab') is None:
+        return CheckResult(
+            'Cron job', True, 'not available (optional)', required=False,
+        )
+    if has_existing_entry():
+        detail = 'installed (optional)'
+    else:
+        detail = 'not installed (optional)'
+    return CheckResult('Cron job', True, detail, required=False)
+
+
+def run_doctor_checks():
+    """Run every doctor check in display order.
+
+    Returns:
+        List of CheckResult objects.
+    """
+    return [
+        check_python_version(),
+        check_virtualenv(),
+        check_database(),
+        check_configuration(),
+        check_network(),
+        check_dataforseo(),
+        check_cron(),
+    ]
+
+
+def doctor_summary(results):
+    """Return the closing line for a doctor report.
+
+    Args:
+        results: Check results in display order.
+
+    Returns:
+        Summary sentence.
+    """
+    if any(not result.ok and result.required for result in results):
+        return 'Some required checks failed.'
+    if any(not result.ok for result in results):
+        return 'Required checks passed. Review the optional items above.'
+    return "All checks passed. You're good to go."
+
+
+def doctor_exit_code(results):
+    """Return 1 when a required check failed, otherwise 0.
+
+    Args:
+        results: Check results in display order.
+
+    Returns:
+        Process exit code.
+    """
+    if any(not result.ok and result.required for result in results):
+        return 1
+    return 0
+
+
+def render_doctor_report(results):
+    """Print the doctor report and return the process exit code.
+
+    Args:
+        results: Check results in display order.
+
+    Returns:
+        0 when every required check passed, otherwise 1.
+    """
+    click.echo('KDP Scout Doctor')
+    click.echo('')
+    for result in results:
+        mark = '✓' if result.ok else '✗'
+        click.echo(f'{mark} {result.name}: {result.detail}')
+        if not result.ok and result.fix:
+            click.echo(f'   Fix: {result.fix}')
+    click.echo('')
+    click.echo(doctor_summary(results))
+    return doctor_exit_code(results)
+
+
+@main.command()
+@click.pass_context
+def doctor(ctx):
+    """Check local setup and print a pass or fail for each item.
+
+    Verifies the Python version, virtual environment, database, .env,
+    and network access. DataForSEO credentials and the cron job are
+    reported but do not fail the command when they are unset.
+
+    Exits with status 1 when a required check fails. Secret values
+    are never printed.
+
+    Example:
+        kdp-scout doctor
+    """
+    ctx.exit(render_doctor_report(run_doctor_checks()))
 
 
 # -- Phase 5: Automation, Seeds, Cron --------------------------------------

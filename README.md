@@ -53,6 +53,7 @@ If KDP Scout helps you and you want to follow what I'm building next — includi
 - SQLite local storage (no cloud, no accounts, no telemetry)
 - Multi-marketplace support (Amazon.com, .ca, .com.au, .de, .co.uk, .fr, .es, .it)
 - Free tier covers everything; optional DataForSEO for actual search volumes
+- `kdp-scout doctor` checks Python, the virtual environment, the database, config, and network
 
 ## Installation
 
@@ -287,6 +288,17 @@ kdp-scout config show
 kdp-scout config init
 ```
 
+### Setup health check
+
+```bash
+# Check Python, virtualenv, database, .env, and network
+kdp-scout doctor
+```
+
+Each line is a pass (`✓`) or a fail (`✗`). A failed check includes a one-line fix. DataForSEO and cron are optional: leaving them unset still passes. The command exits with status 1 when a required check fails. Secret values are never printed.
+
+The network check requests the configured marketplace's `robots.txt` with a short timeout. It does not call DataForSEO or any other paid API.
+
 ## Configuration (.env)
 
 All settings are optional. The tool works entirely free without API keys.
@@ -375,6 +387,10 @@ tail -f data/automation.log
 ```
 
 ## Troubleshooting
+
+### Setup problems
+
+Run `kdp-scout doctor` to check Python, the virtual environment, the database, `.env`, and network access in one pass. Failed checks print a one-line fix.
 
 ### `kdp-scout: command not found`
 
