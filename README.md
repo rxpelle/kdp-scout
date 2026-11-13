@@ -295,7 +295,7 @@ kdp-scout config init
 kdp-scout doctor
 ```
 
-Each line is a pass (`✓`) or a fail (`✗`). A failed check includes a one-line fix. DataForSEO and cron are optional: leaving them unset still passes. The command exits with status 1 when a required check fails. Secret values are never printed.
+Each line is a pass (`✓`) or a fail (`✗`). A failed check includes a one-line fix. DataForSEO, Scavio and cron are optional: leaving them unset still passes. The command exits with status 1 when a required check fails. Secret values are never printed.
 
 The network check requests the configured marketplace's `robots.txt` with a short timeout. It does not call DataForSEO or any other paid API.
 
@@ -307,6 +307,10 @@ All settings are optional. The tool works entirely free without API keys.
 # DataForSEO API credentials (optional, for enhanced reverse ASIN and search volume)
 DATAFORSEO_LOGIN=
 DATAFORSEO_API_KEY=
+
+# Scavio API (optional): read tracked books from the API instead of scraping product pages
+SCAVIO_API_KEY=
+PRODUCT_SOURCE=scraper   # set to scavio to use it
 
 # Proxy for web scraping (optional, helps avoid Amazon rate limits)
 PROXY_URL=
@@ -326,6 +330,19 @@ MARKETPLACE=us
 # Logging level
 LOG_LEVEL=INFO
 ```
+
+### Scavio product source
+
+`track add`, `track snapshot` and the daily automation read each tracked book from its Amazon product page. If Amazon answers with a CAPTCHA or a 403, you can read the books from the [Scavio API](https://scavio.dev) instead:
+
+```bash
+SCAVIO_API_KEY=your-key
+PRODUCT_SOURCE=scavio
+```
+
+Each book lookup is one API request (1 credit), so the daily automation uses one credit per tracked book per day. Failed requests are logged and not retried. Every marketplace above is supported.
+
+Filled from the API: title, author, BSR (overall and per category), reviews, rating, categories, and the price of the ASIN's own format (paperback or Kindle). Not filled: page count, publication date and description. The Kindle price is only filled when the API returns one for a Kindle edition, so the revenue estimate can be missing for Kindle ASINs. `kdp-scout doctor` reports whether the source is set up.
 
 ### Marketplace
 
@@ -427,6 +444,7 @@ kdp_scout/
         bsr_model.py         # BSR-to-sales estimation model
         ads_importer.py      # Amazon Ads CSV importer
         dataforseo.py        # DataForSEO API (optional)
+        scavio.py            # Scavio API product source (optional)
         trending.py          # Bestseller scraping, Google suggest trending
 ```
 
@@ -551,6 +569,7 @@ Specifically:
 - **Product page scraping** fetches publicly available book data (BSR, price, reviews). Respect rate limits to avoid being blocked.
 - **Amazon Ads import** reads CSV files you export from your own Amazon Ads account. No Amazon systems are accessed.
 - **DataForSEO integration** (optional) uses a licensed third-party API and does not scrape Amazon directly.
+- **Scavio product source** (optional) reads tracked books from a third-party API instead of loading Amazon product pages from your machine.
 
 The authors of this software make no guarantees about continued access to Amazon's APIs or the accuracy of scraped data. Amazon may change their systems at any time.
 

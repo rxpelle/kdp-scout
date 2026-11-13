@@ -19,6 +19,7 @@ from kdp_scout.cli import (
     check_dataforseo,
     check_network,
     check_python_version,
+    check_scavio,
     check_virtualenv,
     doctor_exit_code,
     main,
@@ -37,6 +38,7 @@ def _passing_results():
         CheckResult('Configuration', True, '.env loaded, MARKETPLACE=us'),
         CheckResult('Network', True, 'www.amazon.com reachable (HTTP 200, 12ms)'),
         CheckResult('DataForSEO', True, 'not configured (optional)', required=False),
+        CheckResult('Scavio', True, 'not in use (optional)', required=False),
         CheckResult('Cron job', True, 'not installed (optional)', required=False),
     ]
 
@@ -283,6 +285,33 @@ def test_dataforseo_pass_fail_and_redaction(monkeypatch):
     assert 'DATAFORSEO_LOGIN' in partial.fix
 
 
+def test_scavio_states_and_redaction(monkeypatch):
+    monkeypatch.setattr(Config, 'PRODUCT_SOURCE', 'scraper')
+    monkeypatch.setattr(Config, 'SCAVIO_API_KEY', '')
+    unused = check_scavio()
+    assert unused.ok
+    assert not unused.required
+    assert unused.detail == 'not in use (optional)'
+
+    monkeypatch.setattr(Config, 'SCAVIO_API_KEY', 'super-secret-scavio-key')
+    key_only = check_scavio()
+    assert key_only.ok
+    assert 'PRODUCT_SOURCE=scavio' in key_only.detail
+    assert 'super-secret-scavio-key' not in key_only.detail
+
+    monkeypatch.setattr(Config, 'PRODUCT_SOURCE', 'scavio')
+    in_use = check_scavio()
+    assert in_use.ok
+    assert in_use.detail == 'product source (optional)'
+
+    monkeypatch.setattr(Config, 'SCAVIO_API_KEY', '   ')
+    missing = check_scavio()
+    assert not missing.ok
+    assert not missing.required
+    assert missing.detail == 'PRODUCT_SOURCE is scavio but SCAVIO_API_KEY is not set'
+    assert 'SCAVIO_API_KEY' in missing.fix
+
+
 def test_cron_optional_states():
     with patch('shutil.which', return_value=None):
         missing_bin = check_cron()
@@ -318,6 +347,8 @@ def test_run_doctor_checks_pass_path_never_calls_network(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, 'MARKETPLACE', 'us')
     monkeypatch.setattr(Config, 'DATAFORSEO_LOGIN', '')
     monkeypatch.setattr(Config, 'DATAFORSEO_API_KEY', '')
+    monkeypatch.setattr(Config, 'SCAVIO_API_KEY', '')
+    monkeypatch.setattr(Config, 'PRODUCT_SOURCE', 'scraper')
     monkeypatch.setattr(Config, 'PROXY_URL', '')
     response = MagicMock(status_code=200)
 
@@ -346,6 +377,8 @@ def test_run_doctor_checks_fail_path(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, 'MARKETPLACE', 'us')
     monkeypatch.setattr(Config, 'DATAFORSEO_LOGIN', 'only-login')
     monkeypatch.setattr(Config, 'DATAFORSEO_API_KEY', '')
+    monkeypatch.setattr(Config, 'SCAVIO_API_KEY', '')
+    monkeypatch.setattr(Config, 'PRODUCT_SOURCE', 'scraper')
     monkeypatch.setattr(Config, 'PROXY_URL', '')
     monkeypatch.setattr(sys, 'prefix', '/usr')
     monkeypatch.setattr(sys, 'base_prefix', '/usr')

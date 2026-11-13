@@ -24,6 +24,10 @@ class Config:
     DATAFORSEO_LOGIN = os.getenv('DATAFORSEO_LOGIN', '')
     DATAFORSEO_API_KEY = os.getenv('DATAFORSEO_API_KEY', '')
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+    SCAVIO_API_KEY = os.getenv('SCAVIO_API_KEY', '')
+
+    # Where book snapshots come from: 'scraper' (Amazon product pages) or 'scavio' (Scavio API)
+    PRODUCT_SOURCE = os.getenv('PRODUCT_SOURCE', 'scraper').strip().lower()
 
     # Proxy
     PROXY_URL = os.getenv('PROXY_URL', '')
@@ -84,6 +88,8 @@ class Config:
             'DATAFORSEO_LOGIN': cls.DATAFORSEO_LOGIN or '(not set)',
             'DATAFORSEO_API_KEY': '***' if cls.DATAFORSEO_API_KEY else '(not set)',
             'ANTHROPIC_API_KEY': '***' if cls.ANTHROPIC_API_KEY else '(not set)',
+            'SCAVIO_API_KEY': '***' if cls.SCAVIO_API_KEY else '(not set)',
+            'PRODUCT_SOURCE': cls.PRODUCT_SOURCE,
             'PROXY_URL': cls.PROXY_URL or '(not set)',
             'AUTOCOMPLETE_RATE_LIMIT': f'{cls.AUTOCOMPLETE_RATE_LIMIT}s',
             'PRODUCT_SCRAPE_RATE_LIMIT': f'{cls.PRODUCT_SCRAPE_RATE_LIMIT}s',

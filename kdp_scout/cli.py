@@ -2742,6 +2742,35 @@ def check_dataforseo():
     )
 
 
+def check_scavio():
+    """Report whether the Scavio product source is set up.
+
+    The integration is optional. PRODUCT_SOURCE=scavio without
+    SCAVIO_API_KEY fails this check but does not fail the command.
+    The key value is never included in the result.
+
+    Returns:
+        CheckResult for the Scavio check.
+    """
+    key_set = bool((Config.SCAVIO_API_KEY or '').strip())
+    if Config.PRODUCT_SOURCE != 'scavio':
+        detail = 'not in use (optional)'
+        if key_set:
+            detail = 'key set, not in use (set PRODUCT_SOURCE=scavio)'
+        return CheckResult('Scavio', True, detail, required=False)
+    if key_set:
+        return CheckResult(
+            'Scavio', True, 'product source (optional)', required=False,
+        )
+    return CheckResult(
+        'Scavio',
+        False,
+        'PRODUCT_SOURCE is scavio but SCAVIO_API_KEY is not set',
+        fix='Set SCAVIO_API_KEY in .env, or set PRODUCT_SOURCE=scraper',
+        required=False,
+    )
+
+
 def check_cron():
     """Report whether a KDP Scout crontab entry is installed.
 
@@ -2777,6 +2806,7 @@ def run_doctor_checks():
         check_configuration(),
         check_network(),
         check_dataforseo(),
+        check_scavio(),
         check_cron(),
     ]
 

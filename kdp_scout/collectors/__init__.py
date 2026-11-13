@@ -7,4 +7,5 @@ Each collector implements a specific data source:
 - bsr_model: BSR-to-sales estimation model (Phase 2)
 - dataforseo: DataForSEO API integration for reverse ASIN & keyword data (Phase 4)
 - semantic: Claude API semantic keyword clustering for A10 optimization
+- scavio: Scavio API product source, an optional alternative to product_scraper
 """
