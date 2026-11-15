@@ -57,6 +57,8 @@ If KDP Scout helps you and you want to follow what I'm building next — includi
 
 ## Installation
 
+Requires **Python 3.10 or newer** (3.9 support was dropped in November 2026; 3.9 reached end of life in October 2025). On macOS, the built-in `python3` may be 3.9. Install a newer one with `brew install python@3.13` and use `python3.13 -m venv .venv` below.
+
 ```bash
 git clone https://github.com/rxpelle/kdp-scout.git
 cd kdp-scout

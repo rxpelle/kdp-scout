@@ -2383,8 +2383,8 @@ def category_finder(keyword, target_sales, department):
 
 # -- Doctor command --------------------------------------------------------
 
-# Matches python_requires in setup.py. CI also tests 3.9.
-MIN_PYTHON = (3, 9)
+# Matches python_requires in setup.py. CI also tests 3.10.
+MIN_PYTHON = (3, 10)
 
 # Public robots.txt only. This check must not call a paid API.
 NETWORK_TIMEOUT_SECONDS = 5
