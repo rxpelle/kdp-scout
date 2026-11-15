@@ -31,7 +31,7 @@ from kdp_scout.db import init_db
 
 def _passing_results():
     return [
-        CheckResult('Python version', True, '3.11.6 (>= 3.9 required)'),
+        CheckResult('Python version', True, '3.11.6 (>= 3.10 required)'),
         CheckResult('Virtual environment', True, 'active (.venv)'),
         CheckResult('Database', True, 'data/kdp_scout.db exists, schema present'),
         CheckResult('Configuration', True, '.env loaded, MARKETPLACE=us'),
@@ -44,14 +44,14 @@ def _passing_results():
 def test_python_version_pass_and_fail():
     passed = check_python_version((3, 11, 6))
     assert passed.ok
-    assert passed.detail == '3.11.6 (>= 3.9 required)'
+    assert passed.detail == '3.11.6 (>= 3.10 required)'
     assert passed.fix is None
 
-    failed = check_python_version((3, 8, 2))
+    failed = check_python_version((3, 9, 6))
     assert not failed.ok
     assert failed.required
-    assert '3.8.2' in failed.detail
-    assert '3.9' in failed.fix
+    assert '3.9.6' in failed.detail
+    assert '3.10' in failed.fix
 
 
 def test_virtualenv_pass_and_fail(tmp_path):
@@ -374,7 +374,7 @@ def test_doctor_command_pass(monkeypatch):
 
     assert result.exit_code == 0
     assert 'KDP Scout Doctor' in result.output
-    assert '✓ Python version: 3.11.6 (>= 3.9 required)' in result.output
+    assert '✓ Python version: 3.11.6 (>= 3.10 required)' in result.output
     assert '✓ DataForSEO: not configured (optional)' in result.output
     assert '✓ Cron job: not installed (optional)' in result.output
     assert "All checks passed. You're good to go." in result.output
