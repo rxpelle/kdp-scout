@@ -176,6 +176,12 @@ def _query_autocomplete(prefix, alias, mp):
             logger.error(f'Invalid JSON from autocomplete for "{prefix}": {e}')
             return []
 
+        # Amazon may fall back to all departments when this department has
+        # no matches. Do not mix unrelated products into book keyword mining.
+        if alias != 'aps' and data.get('alias', alias) != alias:
+            logger.debug('Ignoring autocomplete fallback from %s to %s', alias, data.get('alias'))
+            return []
+
         suggestions = data.get('suggestions', [])
 
         results = []
